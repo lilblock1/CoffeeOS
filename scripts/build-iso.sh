@@ -33,6 +33,15 @@ if [[ -n ${COFFEE_LIVE_BUILD_CACHE_DIR:-} ]]; then
   ln -s "$COFFEE_LIVE_BUILD_CACHE_DIR/packages.chroot" "$WORK/cache/packages.chroot"
   echo "Using persistent live-build package cache: $COFFEE_LIVE_BUILD_CACHE_DIR"
 fi
+# Stock builds do not run the optimized-package builder. Still ship an
+# explicit manifest so image verification can distinguish stock Debian packages
+# from an incomplete optimization stage. Preserve a staged Deep/Core manifest.
+optimization_manifest="$RECIPE/config/includes.chroot/usr/share/coffeeos/optimized-packages.tsv"
+if [[ ! -s "$optimization_manifest" ]]; then
+  mkdir -p "$(dirname "$optimization_manifest")"
+  printf 'source\ttier\toptimization\tresult\tbinaries\nnone\tstock\tdebian-default\tstock\t(none)\n' > "$optimization_manifest"
+fi
+
 # Stamp reproducibility/support metadata into the image before packaging.
 mkdir -p "$RECIPE/config/includes.chroot/usr/share/coffeeos"
 commit="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
