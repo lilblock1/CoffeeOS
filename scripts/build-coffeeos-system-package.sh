@@ -7,7 +7,13 @@ INC="$ROOT/live-build/config/includes.chroot"
 PKGDIR="$ROOT/live-build/config/packages.chroot"
 WORK="${COFFEEOS_SYSTEM_PACKAGE_WORK:-}"
 RELEASE_VERSION=$(sed -n 's/^COFFEEOS_VERSION=//p' "$INC/usr/share/coffeeos/release" | head -n1)
-DEFAULT_VERSION=${RELEASE_VERSION/-dev/~dev1}
+BASE_VERSION=${RELEASE_VERSION/-dev/~dev1}
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  GIT_REVISION="$(git -C "$ROOT" rev-list --count HEAD)"
+else
+  GIT_REVISION=0
+fi
+DEFAULT_VERSION="${BASE_VERSION}+git${GIT_REVISION}"
 VERSION=${COFFEEOS_PACKAGE_VERSION:-$DEFAULT_VERSION}
 ARCH=all
 OUT="$PKGDIR/coffeeos-system_${VERSION}_${ARCH}.deb"
