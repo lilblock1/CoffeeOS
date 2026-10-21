@@ -129,7 +129,10 @@ jobs:
           records=[]
           out=Path('publish')
           for item in sorted(selected.values(),key=lambda x:(x['package'],x['architecture'])):
-              dst=out/item['path'].name
+              # GitHub normalizes '~' in release asset names. Use a stable safe
+              # filename while retaining the real Debian Version inside the .deb.
+              asset_name=item['path'].name.replace('~','_')
+              dst=out/asset_name
               shutil.copy2(item['path'],dst)
               digest=hashlib.sha256(dst.read_bytes()).hexdigest()
               records.append({
@@ -195,3 +198,18 @@ jobs:
           url="https://github.com/lilblock1/CoffeeOS/releases/download/$UPDATE_TAG/coffeeos-update.json"
           curl -fL --retry 4 --retry-delay 2 "$url" -o /tmp/coffeeos-update.json
           python3 -m json.tool /tmp/coffeeos-update.json >/dev/null
+          python3 - <<'PY'
+          import hashlib,json,subprocess,tempfile
+          from pathlib import Path
+          data=json.loads(Path('/tmp/coffeeos-update.json').read_text())
+          tag='coffeeos-updates-'+data['channel']
+          with tempfile.TemporaryDirectory() as td:
+              root=Path(td)
+              for item in data['packages']:
+                  dst=root/item['asset']
+                  url=f"https://github.com/lilblock1/CoffeeOS/releases/download/{tag}/{item['asset']}"
+                  subprocess.run(['curl','-fL','--retry','4','--retry-delay','2',url,'-o',str(dst)],check=True)
+                  actual=hashlib.sha256(dst.read_bytes()).hexdigest()
+                  if actual != item['sha256']:
+                      raise SystemExit('Published SHA256 mismatch: '+item['asset'])
+          PY
