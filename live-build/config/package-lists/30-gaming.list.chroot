@@ -3,6 +3,15 @@
 # stays reasonably small. coffee-gaming-setup installs those on demand.
 gamemode
 mangohud
+# OpenGL / EGL through Mesa for native Linux games and legacy 3D apps
+libgl1
+libglx-mesa0
+libgl1-mesa-dri
+libegl1
+libegl-mesa0
+mesa-utils
+
+# Vulkan stack
 libvulkan1
 mesa-vulkan-drivers
 vulkan-tools
