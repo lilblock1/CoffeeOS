@@ -36,9 +36,11 @@ class TestDesktopConfig(unittest.TestCase):
         self.assertIn('Exec=coffeeos-installer', launcher)
         self.assertNotIn('Exec=install-debian', launcher)
         wrapper=(CHROOT/'usr/local/bin/coffeeos-installer').read_text()
+        self.assertIn('calamares-install-debian', wrapper)
         self.assertIn('install-debian', wrapper)
         hook=(ROOT/'live-build/config/hooks/live/040-coffeeos-installer-options.hook.chroot').read_text()
         self.assertIn('Install Debian', hook)
+        self.assertIn('calamares-install-debian.desktop', hook)
         self.assertIn('org.calamares.calamares.desktop', hook)
         self.assertIn('coffeeos-installer.desktop', hook)
 
