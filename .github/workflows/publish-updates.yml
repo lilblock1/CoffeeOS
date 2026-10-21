@@ -1,0 +1,70 @@
+name: Publish CoffeeOS Updates
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Update channel
+        type: choice
+        options: [dev, beta, stable]
+        required: true
+      release_tag:
+        description: GitHub Release tag containing tested .deb files
+        required: true
+        type: string
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: coffeeos-pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          mkdir -p incoming
+          gh release download "$TAG" --pattern '*.deb' --dir incoming
+          test -n "$(find incoming -maxdepth 1 -name '*.deb' -print -quit)"
+      - name: Restore current Pages repository
+        env:
+          PAGE_URL: https://lilblock1.github.io/CoffeeOS/
+        run: |
+          mkdir -p public
+          # Restore existing channel packages/metadata from the last deployment if present.
+          # Pages has no directory listing: published manifest records files to restore.
+          if curl -fsSL "${PAGE_URL}manifest.txt" -o /tmp/coffeeos-manifest; then
+            while IFS= read -r file; do
+              [[ "$file" =~ ^(dists|pool)/[a-zA-Z0-9._/-]+$ ]] || exit 1
+              [[ "$file" != *..* ]] || exit 1
+              mkdir -p "public/$(dirname "$file")"
+              curl -fsSL "${PAGE_URL}$file" -o "public/$file"
+            done < /tmp/coffeeos-manifest
+          fi
+      - name: Install repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg
+      - name: Import signing key
+        env:
+          PRIVATE_KEY: ${{ secrets.COFFEEOS_GPG_PRIVATE_KEY }}
+        run: |
+          test -n "$PRIVATE_KEY"
+          printf '%s\n' "$PRIVATE_KEY" | gpg --batch --import
+      - name: Generate signed APT repository
+        env:
+          COFFEEOS_GPG_PASSPHRASE: ${{ secrets.COFFEEOS_GPG_PASSPHRASE }}
+        run: |
+          bash scripts/build-repo.sh "${{ inputs.channel }}" incoming public
+          find public/dists public/pool -type f | sed 's#^public/##' | LC_ALL=C sort > public/manifest.txt
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - uses: actions/deploy-pages@v4

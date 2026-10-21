@@ -1,0 +1,8 @@
+*.deb
+*.iso
+*.gpg
+*.asc
+*.key
+dist/
+out/
+secrets/
