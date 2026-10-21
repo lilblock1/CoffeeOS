@@ -1,6 +1,7 @@
 # CoffeeOS ISO request
 
-Retry after fixing CoffeeKernel live-build package-prefix/flavour mapping and
-updating the validation tests to match the corrected configuration.
+Retry after disabling the legacy BIOS QEMU smoke test. BIOS support remains
+included in the ISO; CI now requires payload verification, UEFI boot, and the
+full-disk installed-system boot test.
 
 Requested: 2026-10-21
