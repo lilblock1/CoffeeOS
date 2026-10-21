@@ -75,6 +75,8 @@ class TestGamingPackages(unittest.TestCase):
         self.assertIn('packagechooser_coffeeapps', module)
         self.assertIn('check_target_env_call(["apt-get", "update"])', module)
         self.assertIn('"lutris": ["lutris", "winetricks"]', module)
+        self.assertIn('["/usr/local/sbin/coffee-gaming-setup", "--yes", "gamescope"]', module)
+        self.assertIn('package != "gamescope"', module)
         # Terminal post-install path remains available, but `full` does not force Lutris.
         self.assertIn('lutris) need_root; install_lutris ;;', script)
         full_line=next(line for line in script.splitlines() if line.strip().startswith('full)'))
