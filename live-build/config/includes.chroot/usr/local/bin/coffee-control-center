@@ -1064,7 +1064,7 @@ class CoffeeControlCenter(Gtk.Window):
     # Updates
     def updates_page(self):
         box=self.page_box(); box.pack_start(self.label('Updates', 'title'),False,False,0)
-        box.pack_start(self.label('Debian security/base packages come from Debian Stable. CoffeeOS updates come from the signed lilblock1/CoffeeOS GitHub feed by default — no new ISO is required.', 'muted'),False,False,0)
+        box.pack_start(self.label('Debian security/base packages come from Debian Stable. CoffeeOS updates come from verified lilblock1/CoffeeOS GitHub Releases by default — no new ISO is required.', 'muted'),False,False,0)
         self.update_status=self.label(''); box.pack_start(self.update_status,False,False,0)
         self.update_feed=self.label(''); box.pack_start(self.update_feed,False,False,0)
         self.update_safety=self.label(''); box.pack_start(self.update_safety,False,False,0)
@@ -1106,7 +1106,7 @@ class CoffeeControlCenter(Gtk.Window):
         feed=info.get('feed_url','')
         self.update_channel.set_active_id(info.get('feed_suite','stable'))
         if info.get('feed_source')=='github':
-            configured='signed and ready' if info.get('feed_configured') else 'will bootstrap on next check'
+            configured='verified and ready' if info.get('feed_configured') else 'enabled'
             self.update_feed.set_text(f"CoffeeOS source: GitHub · {info.get('github_repo','lilblock1/CoffeeOS')} · {configured}")
         else:
             self.update_feed.set_text('CoffeeOS feed: '+(feed if feed else 'not configured — Debian Stable updates still work'))
@@ -1119,7 +1119,7 @@ class CoffeeControlCenter(Gtk.Window):
 
     def use_github_updates(self,*_):
         channel=self.update_channel.get_active_id() or 'dev'
-        if self.confirm('Use official CoffeeOS GitHub updates?',f'Configure the signed lilblock1/CoffeeOS GitHub Pages feed on the {channel} channel?'):
+        if self.confirm('Use official CoffeeOS GitHub updates?',f'Use the lilblock1/CoffeeOS GitHub Releases {channel} update channel? Packages are verified against the published manifest and SHA-256 checksums.'):
             self.action('Enable GitHub updates',['pkexec','/usr/local/sbin/coffee-update','use-github',channel],lambda _rc:self.refresh_updates())
 
     def set_update_channel(self,*_):
