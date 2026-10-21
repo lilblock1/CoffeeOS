@@ -22,7 +22,7 @@ permissions:
 # any older run that also uses this concurrency group.
 concurrency:
   group: coffeeos-coffeekernel-iso
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
