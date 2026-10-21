@@ -19,6 +19,7 @@ else
   listing="$tmp/squashfs.list"
   unsquashfs -ll "$squashfs" > "$listing"
 fi
+
 required=(
   '/usr/share/coffeeos/optimized-packages.tsv'
   '/usr/lib/systemd/zram-generator.conf.d/60-coffeeos.conf'
@@ -33,6 +34,7 @@ required=(
 for path in "${required[@]}"; do
   grep -Fq "squashfs-root$path" "$listing" || { echo "ERROR: optimization payload missing: $path" >&2; exit 5; }
 done
+
 # Calamares must show the chooser, then run CoffeeOS' network installer job
 # after Debian's sources-final module has restored normal network repositories.
 settings=$(unsquashfs -cat "$squashfs" etc/calamares/settings.conf 2>/dev/null || true)
@@ -50,59 +52,57 @@ grep -q '^method: legacy$' <<<"$chooser" || { echo 'ERROR: CoffeeOS optional cho
 
 # Lutris must remain an installer option, not preinstalled in the live image.
 if grep -Fq 'squashfs-root/usr/bin/lutris' "$listing"; then
-  echo 'ERROR: Lutris was unexpectedly preinstalled in the base live image.' >&2; exit 11
+  echo 'ERROR: Lutris was unexpectedly preinstalled in the base live image.' >&2
+  exit 11
 fi
 
 kernel_status=$(unsquashfs -cat "$squashfs" usr/share/coffeeos/kernel-build-status.txt 2>/dev/null || true)
 printf '%s\n' "$kernel_status"
+
 if grep -q '^kernel=CoffeeKernel$' <<<"$kernel_status"; then
-  grep -Eq 'squashfs-root/boot/vmlinuz-.*-coffee$' "$listing" || { echo 'ERROR: CoffeeKernel status claims custom kernel but /boot image is missing.' >&2; exit 7; }
+  grep -Eq 'squashfs-root/boot/vmlinuz-.*-coffee$' "$listing" || {
+    echo 'ERROR: CoffeeKernel status claims custom kernel but /boot image is missing.' >&2; exit 7;
+  }
   # The binary stage should have copied the custom kernel and the binary hook
   # should have selected it for CoffeeOS' live boot menu.
   iso_live=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type file -- 2>/dev/null || true)
-  grep -Eq '/live/vmlinuz-.*-coffee$' <<<"$iso_live" || { echo 'ERROR: CoffeeKernel not copied to ISO /live.' >&2; exit 8; }
+  grep -Eq '/live/vmlinuz-.*-coffee$' <<<"$iso_live" || {
+    echo 'ERROR: CoffeeKernel not copied to ISO /live.' >&2; exit 8;
+  }
   for bootcfg in /boot/grub/grub.cfg /isolinux/live.cfg; do
     if xorriso -indev "$ISO" -find "$bootcfg" -type file -- 2>/dev/null | grep -q .; then
       xorriso -osirrox on -indev "$ISO" -extract "$bootcfg" "$tmp/$(basename "$bootcfg")" >/dev/null 2>&1 || true
     fi
   done
   if ! grep -RqsE '/live/vmlinuz-.*-coffee' "$tmp/grub.cfg" "$tmp/live.cfg" 2>/dev/null; then
-    echo 'ERROR: CoffeeKernel exists but was not selected by the live boot menu.' >&2; exit 9
+    echo 'ERROR: CoffeeKernel exists but was not selected by the live boot menu.' >&2
+    exit 9
   fi
-elif grep -q '^kernel=debian-stock
-
-echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
- <<<"$kernel_status"; then
+elif grep -q '^kernel=debian-stock$' <<<"$kernel_status"; then
   : # Explicit stock mode.
 elif [[ -z "$kernel_status" ]]; then
   # Stock ISO builds intentionally skip CoffeeKernel compilation and therefore
-  # do not stage a CoffeeKernel build-status file. In that case, prove that the
-  # image contains a normal Debian kernel and no CoffeeKernel payload.
-  grep -Eq 'squashfs-root/boot/vmlinuz-[^/]+
-
-echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
- "$listing" || {
+  # do not stage a CoffeeKernel build-status file. Prove the resulting image is
+  # a normal Debian-kernel image and contains no CoffeeKernel payload.
+  grep -Eq 'squashfs-root/boot/vmlinuz-[^/]+$' "$listing" || {
     echo 'ERROR: stock ISO has no kernel image under /boot.' >&2; exit 10;
   }
-  if grep -Eq 'squashfs-root/boot/vmlinuz-.*-coffee
-
-echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
- "$listing"; then
-    echo 'ERROR: stock ISO unexpectedly contains CoffeeKernel in /boot.' >&2; exit 10
+  if grep -Eq 'squashfs-root/boot/vmlinuz-.*-coffee$' "$listing"; then
+    echo 'ERROR: stock ISO unexpectedly contains CoffeeKernel in /boot.' >&2
+    exit 10
   fi
   iso_live=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type file -- 2>/dev/null || true)
   grep -q '/live/vmlinuz' <<<"$iso_live" || {
     echo 'ERROR: stock ISO has no live kernel.' >&2; exit 10;
   }
-  if grep -Eq '/live/vmlinuz-.*-coffee
-
-echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
- <<<"$iso_live"; then
-    echo 'ERROR: stock ISO unexpectedly boots CoffeeKernel.' >&2; exit 10
+  if grep -Eq '/live/vmlinuz-.*-coffee$' <<<"$iso_live"; then
+    echo 'ERROR: stock ISO unexpectedly boots CoffeeKernel.' >&2
+    exit 10
   fi
   echo 'kernel=debian-stock (inferred from stock ISO payload)'
 else
-  echo 'ERROR: unrecognized kernel build status.' >&2; exit 10
+  echo 'ERROR: unrecognized kernel build status.' >&2
+  exit 10
 fi
 
 echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
