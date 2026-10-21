@@ -10,7 +10,7 @@ on:
         required: true
         default: dev
       release_tag:
-        description: Optional GitHub Release tag containing tested .deb files
+        description: Optional tested release tag whose .deb packages should be merged into the channel
         required: false
         type: string
   push:
@@ -18,18 +18,15 @@ on:
     paths:
       - live-build/config/includes.chroot/**
       - scripts/build-coffeeos-system-package.sh
-      - scripts/build-repo.sh
       - .github/workflows/publish-updates.yml
   release:
     types: [published]
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: coffeeos-pages
+  group: coffeeos-github-updates
   cancel-in-progress: false
 
 jobs:
@@ -38,14 +35,13 @@ jobs:
       github.event_name != 'release' ||
       startsWith(github.event.release.tag_name, 'coffeeos-coffeekernel-')
     runs-on: ubuntu-24.04
-    environment: github-pages
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Resolve update source and channel
+      - name: Resolve channel and package source
         id: source
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -55,118 +51,147 @@ jobs:
         run: |
           set -Eeuo pipefail
           if [[ "$EVENT_NAME" == release ]]; then
-            echo "channel=dev" >> "$GITHUB_OUTPUT"
-            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-            echo "mode=release" >> "$GITHUB_OUTPUT"
+            channel=dev
+            source_tag="$RELEASE_TAG"
+            mode=release
           elif [[ "$EVENT_NAME" == workflow_dispatch && -n "$INPUT_TAG" ]]; then
-            echo "channel=${INPUT_CHANNEL:-dev}" >> "$GITHUB_OUTPUT"
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-            echo "mode=release" >> "$GITHUB_OUTPUT"
+            channel="${INPUT_CHANNEL:-dev}"
+            source_tag="$INPUT_TAG"
+            mode=release
           else
-            echo "channel=dev" >> "$GITHUB_OUTPUT"
-            echo "tag=" >> "$GITHUB_OUTPUT"
-            echo "mode=source" >> "$GITHUB_OUTPUT"
+            channel=dev
+            source_tag=
+            mode=source
           fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "source_tag=$source_tag" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "update_tag=coffeeos-updates-$channel" >> "$GITHUB_OUTPUT"
 
-      - name: Install repository tools
+      - name: Install package tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dpkg-dev apt-utils gnupg
+          sudo apt-get install -y --no-install-recommends dpkg-dev
 
-      - name: Build CoffeeOS userspace update package
+      - name: Restore packages already published to this channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_TAG: ${{ steps.source.outputs.update_tag }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p incoming
+          if gh release view "$UPDATE_TAG" >/dev/null 2>&1; then
+            gh release download "$UPDATE_TAG" --pattern '*.deb' --dir incoming || true
+          fi
+
+      - name: Build current CoffeeOS userspace package
         if: steps.source.outputs.mode == 'source'
         run: |
           set -Eeuo pipefail
           bash scripts/build-coffeeos-system-package.sh
-          mkdir -p incoming
           cp -v live-build/config/packages.chroot/coffeeos-system_*.deb incoming/
-          test -n "$(find incoming -maxdepth 1 -name '*.deb' -print -quit)"
 
-      - name: Download tested release packages
+      - name: Merge packages from tested CoffeeKernel release
         if: steps.source.outputs.mode == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.source.outputs.tag }}
+          SOURCE_TAG: ${{ steps.source.outputs.source_tag }}
         run: |
           set -Eeuo pipefail
-          mkdir -p incoming
-          gh release download "$TAG" --pattern '*.deb' --dir incoming
-          test -n "$(find incoming -maxdepth 1 -name '*.deb' -print -quit)"
+          gh release download "$SOURCE_TAG" --pattern '*.deb' --dir incoming --clobber
 
-      - name: Restore current Pages repository
-        env:
-          PAGE_URL: https://lilblock1.github.io/CoffeeOS/
-        run: |
-          set -Eeuo pipefail
-          mkdir -p public
-          if curl -fsSL "${PAGE_URL}manifest.txt" -o /tmp/coffeeos-manifest; then
-            while IFS= read -r file; do
-              [[ "$file" =~ ^(dists|pool)/[a-zA-Z0-9._/-]+$ ]] || exit 1
-              [[ "$file" != *..* ]] || exit 1
-              mkdir -p "public/$(dirname "$file")"
-              curl -fsSL "${PAGE_URL}$file" -o "public/$file"
-            done < /tmp/coffeeos-manifest
-          fi
-
-      - name: Prepare GitHub update signing key
-        env:
-          PRIVATE_KEY: ${{ secrets.COFFEEOS_GPG_PRIVATE_KEY }}
-        run: |
-          set -Eeuo pipefail
-          if [[ -n "$PRIVATE_KEY" ]]; then
-            printf '%s\n' "$PRIVATE_KEY" | gpg --batch --import
-            echo 'Using repository-provided CoffeeOS signing key.'
-          else
-            # No manual secret is required for the built-in GitHub source.
-            # The updater refreshes this public key over GitHub HTTPS before
-            # each check, making the GitHub repository the bootstrap trust root.
-            gpg --batch --passphrase '' --quick-generate-key \
-              'CoffeeOS GitHub Updates <updates@coffeeos.local>' rsa3072 sign 7d
-            echo 'Generated short-lived GitHub update signing key.'
-          fi
-          SIGNING_FPR="$(
-            gpg --batch --with-colons --list-secret-keys |
-              awk -F: '$1 == "sec" { primary=1; next } primary && $1 == "fpr" { print $10; exit }'
-          )"
-          test -n "$SIGNING_FPR"
-          echo "COFFEEOS_GPG_KEY_ID=$SIGNING_FPR" >> "$GITHUB_ENV"
-          gpg --batch --armor --export "$SIGNING_FPR" > public/coffeeos-update-key.asc
-          gpg --batch --export "$SIGNING_FPR" > public/coffeeos-update-key.gpg
-          printf '%s\n' "$SIGNING_FPR" > public/coffeeos-update-key.fingerprint
-
-      - name: Generate signed GitHub update repository
+      - name: Select newest package version and build manifest
         env:
           CHANNEL: ${{ steps.source.outputs.channel }}
-          COFFEEOS_GPG_PASSPHRASE: ${{ secrets.COFFEEOS_GPG_PASSPHRASE }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
-          bash scripts/build-repo.sh "$CHANNEL" incoming public
-          find public/dists public/pool -type f |
-            sed 's#^public/##' |
-            LC_ALL=C sort > public/manifest.txt
+          mkdir -p publish
+          python3 - <<'PY'
+          import hashlib, json, os, shutil, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
 
-      - name: Verify generated repository
+          incoming=Path('incoming')
+          selected={}
+          for deb in sorted(incoming.glob('*.deb')):
+              def field(name):
+                  return subprocess.check_output(['dpkg-deb','-f',str(deb),name],text=True).strip()
+              pkg=field('Package'); version=field('Version'); arch=field('Architecture')
+              key=(pkg,arch)
+              old=selected.get(key)
+              if old is None or subprocess.run(['dpkg','--compare-versions',version,'gt',old['version']]).returncode==0:
+                  selected[key]={'path':deb,'package':pkg,'version':version,'architecture':arch}
+
+          if not selected:
+              raise SystemExit('No update packages were found.')
+
+          records=[]
+          out=Path('publish')
+          for item in sorted(selected.values(),key=lambda x:(x['package'],x['architecture'])):
+              dst=out/item['path'].name
+              shutil.copy2(item['path'],dst)
+              digest=hashlib.sha256(dst.read_bytes()).hexdigest()
+              records.append({
+                  'package':item['package'],
+                  'version':item['version'],
+                  'architecture':item['architecture'],
+                  'asset':dst.name,
+                  'sha256':digest,
+                  'size':dst.stat().st_size,
+                  'auto_install': not item['package'].startswith('linux-headers-'),
+              })
+
+          manifest={
+              'schema':1,
+              'repo':'lilblock1/CoffeeOS',
+              'channel':os.environ['CHANNEL'],
+              'generated_at':datetime.now(timezone.utc).isoformat(),
+              'source_commit':os.environ['SOURCE_SHA'],
+              'packages':records,
+          }
+          (out/'coffeeos-update.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          with (out/'SHA256SUMS').open('w') as sums:
+              for item in records:
+                  sums.write(item['sha256']+'  '+item['asset']+'\n')
+          PY
+          cat publish/coffeeos-update.json
+          (cd publish && sha256sum -c SHA256SUMS)
+
+      - name: Publish moving GitHub update release
         env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_TAG: ${{ steps.source.outputs.update_tag }}
           CHANNEL: ${{ steps.source.outputs.channel }}
         run: |
           set -Eeuo pipefail
-          gpg --batch --verify "public/dists/$CHANNEL/Release.gpg" "public/dists/$CHANNEL/Release"
-          gpg --batch --verify "public/dists/$CHANNEL/InRelease"
-          gpg --batch --verify "public/pool/$CHANNEL/SHA256SUMS.asc" "public/pool/$CHANNEL/SHA256SUMS"
-          (cd "public/pool/$CHANNEL" && sha256sum -c SHA256SUMS)
-          shopt -s nullglob
-          packages=("public/pool/$CHANNEL"/*.deb)
-          (("${#packages[@]}" > 0))
-          for pkg in "${packages[@]}"; do
-            gpg --batch --verify "$pkg.asc" "$pkg"
-          done
+          if ! gh release view "$UPDATE_TAG" >/dev/null 2>&1; then
+            gh release create "$UPDATE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "CoffeeOS $CHANNEL Updates" \
+              --notes "Moving CoffeeOS $CHANNEL update channel used by installed systems. Assets are replaced as newer tested packages are published." \
+              --prerelease
+          fi
 
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+          # Keep one clean package set per channel instead of creating release spam.
+          while IFS= read -r asset; do
+            [[ -n "$asset" ]] || continue
+            case "$asset" in
+              *.deb|coffeeos-update.json|SHA256SUMS)
+                gh release delete-asset "$UPDATE_TAG" "$asset" -y || true ;;
+            esac
+          done < <(gh release view "$UPDATE_TAG" --json assets --jq '.assets[].name')
 
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
+          gh release upload "$UPDATE_TAG" publish/*.deb publish/coffeeos-update.json publish/SHA256SUMS --clobber
+          gh release edit "$UPDATE_TAG" \
+            --title "CoffeeOS $CHANNEL Updates" \
+            --notes "Moving CoffeeOS $CHANNEL update channel. Latest package manifest commit: $GITHUB_SHA. This release is updated in place and does not represent a new ISO."
 
-      - uses: actions/deploy-pages@v4
+      - name: Verify published manifest is reachable
+        env:
+          UPDATE_TAG: ${{ steps.source.outputs.update_tag }}
+        run: |
+          set -Eeuo pipefail
+          url="https://github.com/lilblock1/CoffeeOS/releases/download/$UPDATE_TAG/coffeeos-update.json"
+          curl -fL --retry 4 --retry-delay 2 "$url" -o /tmp/coffeeos-update.json
+          python3 -m json.tool /tmp/coffeeos-update.json >/dev/null
