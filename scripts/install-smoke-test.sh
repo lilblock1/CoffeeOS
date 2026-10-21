@@ -7,8 +7,11 @@ for exe in qemu-system-x86_64 qemu-img xorriso; do command -v "$exe" >/dev/null 
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 disk="$work/coffeeos.qcow2"; kernel="$work/vmlinuz"; initrd="$work/initrd"; install_log="$work/install.log"; boot_log="$work/boot.log"
-kernel_path=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type f -- 2>/dev/null | grep -E '/live/vmlinuz' | head -1)
-initrd_path=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type f -- 2>/dev/null | grep -E '/live/initrd' | head -1)
+normalize_xorriso_path() {
+  sed -e "s/^'//" -e "s/'$//"
+}
+kernel_path=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type f -- 2>/dev/null | grep -E '/live/vmlinuz' | head -1 | normalize_xorriso_path)
+initrd_path=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type f -- 2>/dev/null | grep -E '/live/initrd' | head -1 | normalize_xorriso_path)
 [[ -n "$kernel_path" && -n "$initrd_path" ]] || { echo 'Could not find live kernel/initrd.' >&2; exit 4; }
 xorriso -osirrox on -indev "$ISO" -extract "$kernel_path" "$kernel" >/dev/null 2>&1
 xorriso -osirrox on -indev "$ISO" -extract "$initrd_path" "$initrd" >/dev/null 2>&1
