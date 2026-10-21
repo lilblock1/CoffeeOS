@@ -8,10 +8,20 @@ on:
         type: choice
         options: [dev, beta, stable]
         required: true
+        default: dev
       release_tag:
-        description: GitHub Release tag containing tested .deb files
-        required: true
+        description: Optional GitHub Release tag containing tested .deb files
+        required: false
         type: string
+  push:
+    branches: [main]
+    paths:
+      - live-build/config/includes.chroot/**
+      - scripts/build-coffeeos-system-package.sh
+      - scripts/build-repo.sh
+      - .github/workflows/publish-updates.yml
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -24,17 +34,61 @@ concurrency:
 
 jobs:
   publish:
+    if: >-
+      github.event_name != 'release' ||
+      startsWith(github.event.release.tag_name, 'coffeeos-coffeekernel-')
     runs-on: ubuntu-24.04
     environment: github-pages
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Download release packages
+      - name: Resolve update source and channel
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$EVENT_NAME" == release ]]; then
+            echo "channel=dev" >> "$GITHUB_OUTPUT"
+            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_NAME" == workflow_dispatch && -n "$INPUT_TAG" ]]; then
+            echo "channel=${INPUT_CHANNEL:-dev}" >> "$GITHUB_OUTPUT"
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=dev" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "mode=source" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends dpkg-dev apt-utils gnupg
+
+      - name: Build CoffeeOS userspace update package
+        if: steps.source.outputs.mode == 'source'
+        run: |
+          set -Eeuo pipefail
+          bash scripts/build-coffeeos-system-package.sh
+          mkdir -p incoming
+          cp -v live-build/config/packages.chroot/coffeeos-system_*.deb incoming/
+          test -n "$(find incoming -maxdepth 1 -name '*.deb' -print -quit)"
+
+      - name: Download tested release packages
+        if: steps.source.outputs.mode == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.release_tag }}
+          TAG: ${{ steps.source.outputs.tag }}
         run: |
+          set -Eeuo pipefail
           mkdir -p incoming
           gh release download "$TAG" --pattern '*.deb' --dir incoming
           test -n "$(find incoming -maxdepth 1 -name '*.deb' -print -quit)"
@@ -43,9 +97,8 @@ jobs:
         env:
           PAGE_URL: https://lilblock1.github.io/CoffeeOS/
         run: |
+          set -Eeuo pipefail
           mkdir -p public
-          # Restore existing channel packages/metadata from the last deployment if present.
-          # Pages has no directory listing: published manifest records files to restore.
           if curl -fsSL "${PAGE_URL}manifest.txt" -o /tmp/coffeeos-manifest; then
             while IFS= read -r file; do
               [[ "$file" =~ ^(dists|pool)/[a-zA-Z0-9._/-]+$ ]] || exit 1
@@ -55,55 +108,43 @@ jobs:
             done < /tmp/coffeeos-manifest
           fi
 
-      - name: Install repository tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev apt-utils gnupg
-
       - name: Import signing key
         env:
           PRIVATE_KEY: ${{ secrets.COFFEEOS_GPG_PRIVATE_KEY }}
         run: |
+          set -Eeuo pipefail
           test -n "$PRIVATE_KEY"
           printf '%s\n' "$PRIVATE_KEY" | gpg --batch --import
-
           SIGNING_FPR="$(
             gpg --batch --with-colons --list-secret-keys |
               awk -F: '$1 == "sec" { primary=1; next } primary && $1 == "fpr" { print $10; exit }'
           )"
           test -n "$SIGNING_FPR"
           echo "COFFEEOS_GPG_KEY_ID=$SIGNING_FPR" >> "$GITHUB_ENV"
-
-          # Public key is safe to publish. Clients can use this after obtaining it
-          # through a trusted bootstrap path.
           gpg --batch --armor --export "$SIGNING_FPR" > public/coffeeos-update-key.asc
           gpg --batch --export "$SIGNING_FPR" > public/coffeeos-update-key.gpg
+          printf '%s\n' "$SIGNING_FPR" > public/coffeeos-update-key.fingerprint
 
-      - name: Generate signed APT repository
+      - name: Generate signed GitHub update repository
         env:
+          CHANNEL: ${{ steps.source.outputs.channel }}
           COFFEEOS_GPG_PASSPHRASE: ${{ secrets.COFFEEOS_GPG_PASSPHRASE }}
         run: |
-          bash scripts/build-repo.sh "${{ inputs.channel }}" incoming public
+          set -Eeuo pipefail
+          bash scripts/build-repo.sh "$CHANNEL" incoming public
           find public/dists public/pool -type f |
             sed 's#^public/##' |
             LC_ALL=C sort > public/manifest.txt
 
-      - name: Verify every generated signature
+      - name: Verify generated repository
         env:
-          CHANNEL: ${{ inputs.channel }}
+          CHANNEL: ${{ steps.source.outputs.channel }}
         run: |
           set -Eeuo pipefail
-
-          gpg --batch --verify "public/dists/$CHANNEL/Release.gpg"             "public/dists/$CHANNEL/Release"
+          gpg --batch --verify "public/dists/$CHANNEL/Release.gpg" "public/dists/$CHANNEL/Release"
           gpg --batch --verify "public/dists/$CHANNEL/InRelease"
-
-          gpg --batch --verify "public/pool/$CHANNEL/SHA256SUMS.asc"             "public/pool/$CHANNEL/SHA256SUMS"
-
-          (
-            cd "public/pool/$CHANNEL"
-            sha256sum -c SHA256SUMS
-          )
-
+          gpg --batch --verify "public/pool/$CHANNEL/SHA256SUMS.asc" "public/pool/$CHANNEL/SHA256SUMS"
+          (cd "public/pool/$CHANNEL" && sha256sum -c SHA256SUMS)
           shopt -s nullglob
           packages=("public/pool/$CHANNEL"/*.deb)
           (("${#packages[@]}" > 0))
