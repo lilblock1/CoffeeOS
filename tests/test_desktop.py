@@ -33,7 +33,7 @@ class TestDesktopConfig(unittest.TestCase):
     def test_coffeeos_installer_replaces_debian_launcher(self):
         launcher=(CHROOT/'usr/share/applications/coffeeos-installer.desktop').read_text()
         self.assertIn('Name=Install CoffeeOS', launcher)
-        self.assertIn('Exec=coffeeos-installer', launcher)
+        self.assertIn('Exec=coffee-installer-preflight', launcher)
         self.assertNotIn('Exec=install-debian', launcher)
         wrapper=(CHROOT/'usr/local/bin/coffeeos-installer').read_text()
         self.assertIn('calamares-install-debian', wrapper)
