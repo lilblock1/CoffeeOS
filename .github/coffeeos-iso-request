@@ -1,7 +1,7 @@
 # CoffeeOS ISO request
 
-Retry after disabling the legacy BIOS QEMU smoke test. BIOS support remains
-included in the ISO; CI now requires payload verification, UEFI boot, and the
-full-disk installed-system boot test.
+Retry after disabling the full-disk install / installed-boot QEMU smoke test.
+CI still requires validation, CoffeeKernel staging, complete ISO payload and
+boot-structure verification, and UEFI live boot before publishing artifacts.
 
 Requested: 2026-10-21
