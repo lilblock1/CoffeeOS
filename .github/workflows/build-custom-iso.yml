@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
     paths:
+      - .github/workflows/build-custom-iso.yml
+      - tests/**
+      - scripts/validate.sh
+      - scripts/boot-smoke-test.sh
+      - scripts/verify-*.sh
       # Desktop, installer and package changes should rebuild the ISO, but they
       # should reuse CoffeeKernel when the kernel inputs are unchanged.
       - live-build/**
