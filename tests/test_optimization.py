@@ -120,17 +120,20 @@ class TestOptimizationPipeline(unittest.TestCase):
     def test_xorriso_quoted_live_paths_are_normalized(self):
         verify=(ROOT/'scripts/verify-optimization-image.sh').read_text()
         self.assertIn('normalize_xorriso_paths()', verify)
-        self.assertIn('sed -e "s/^\'//" -e "s/\'$//"', verify)
+        self.assertIn('sed -e "s/^\\'//" -e "s/\\'$//"', verify)
         self.assertGreaterEqual(verify.count('| normalize_xorriso_paths'), 2)
         # Regression for run 39617695618: xorriso printed a valid custom
         # kernel as '/live/vmlinuz-6.12.113-coffee', including presentation
-        # quotes, while the anchored regex expected -coffee at end-of-line.
+        # quotes, while the verifier expected an unquoted path.
         sample="'/live/vmlinuz-6.12.113-coffee'\n"
         proc=subprocess.run(
             ['sed','-e',"s/^'//",'-e',"s/'$//"],
             input=sample,text=True,capture_output=True,check=True)
         self.assertEqual(proc.stdout.strip(),'/live/vmlinuz-6.12.113-coffee')
-        self.assertRegex(proc.stdout.strip(),r'^/live/vmlinuz-.*-coffee
+        self.assertRegex(proc.stdout.strip(),r'^/live/vmlinuz-.*-coffee\\Z')
+
+    def test_memory_storage_and_logging_defaults_are_conservative(self):
+        zram=(INC/'usr/lib/systemd/zram-generator.conf.d/60-coffeeos.conf').read_text()
         self.assertIn('min(ram / 2, 4096)',zram)
         self.assertIn('compression-algorithm = lz4 zstd',zram)
         sysctl=(INC/'usr/lib/sysctl.d/60-coffeeos.conf').read_text()
