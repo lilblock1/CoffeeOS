@@ -213,3 +213,55 @@ jobs:
                   if actual != item['sha256']:
                       raise SystemExit('Published SHA256 mismatch: '+item['asset'])
           PY
+      - name: End-to-end CoffeeOS updater client test
+        env:
+          UPDATE_TAG: ${{ steps.source.outputs.update_tag }}
+        run: |
+          set -Eeuo pipefail
+          docker run --rm \
+            -v "$PWD:/workspace:ro" \
+            -e UPDATE_TAG="$UPDATE_TAG" \
+            debian:trixie bash -lc '
+              set -Eeuo pipefail
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends \
+                python3 apt ca-certificates curl gnupg dpkg-dev systemd >/dev/null
+
+              mkdir -p /usr/local/sbin /etc/coffeeos /usr/share/coffeeos
+              cp /workspace/live-build/config/includes.chroot/usr/local/sbin/coffee-update /usr/local/sbin/coffee-update
+              cp /workspace/live-build/config/includes.chroot/etc/coffeeos/update.conf /etc/coffeeos/update.conf
+              chmod 0755 /usr/local/sbin/coffee-update
+
+              # Seed an intentionally old installed CoffeeOS package so the
+              # actual updater has a real version to replace.
+              old=/tmp/coffeeos-old
+              mkdir -p "$old/DEBIAN"
+              cat > "$old/DEBIAN/control" <<EOF
+Package: coffeeos-system
+Version: 0.10.0~dev1+git1
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: CoffeeOS Test
+Description: old CoffeeOS updater smoke-test package
+EOF
+              dpkg-deb --root-owner-group --build "$old" /tmp/coffeeos-system-old.deb >/dev/null
+              apt-get install -y /tmp/coffeeos-system-old.deb >/dev/null
+
+              echo "[CoffeeOS updater test] Checking live GitHub channel..."
+              /usr/local/sbin/coffee-update check
+              /usr/local/sbin/coffee-update list | tee /tmp/update-list
+              grep -q "coffeeos-system/github" /tmp/update-list
+
+              expected="$(curl -fsSL "https://github.com/lilblock1/CoffeeOS/releases/download/$UPDATE_TAG/coffeeos-update.json" |
+                python3 -c "import json,sys; d=json.load(sys.stdin); print(next(x[\"version\"] for x in d[\"packages\"] if x[\"package\"]==\"coffeeos-system\"))")"
+
+              echo "[CoffeeOS updater test] Installing live GitHub update..."
+              /usr/local/sbin/coffee-update upgrade
+              installed="$(dpkg-query -W -f="\${Version}" coffeeos-system)"
+              echo "Expected:  $expected"
+              echo "Installed: $installed"
+              test "$installed" = "$expected"
+              /usr/local/sbin/coffee-update status
+              echo "[CoffeeOS updater test] PASS"
+            '
