@@ -33,6 +33,31 @@ initrd="binary/live/initrd.img-$version"
     exit 1
 }
 
+# The source isolinux.cfg keeps live-amd64 for stock builds. Once a staged
+# CoffeeKernel changes live-build's flavour to "coffee", the generated Syslinux
+# label becomes live-coffee. Rewrite only the generated binary config so BIOS
+# autoboot follows the actual custom-kernel label while stock builds remain
+# untouched.
+bios_cfg="binary/isolinux/isolinux.cfg"
+bios_live_cfg="binary/isolinux/live.cfg"
+if [ -f "$bios_cfg" ] && [ -f "$bios_live_cfg" ]; then
+    coffee_label="live-coffee"
+    grep -Eq "^label[[:space:]]+$coffee_label$" "$bios_live_cfg" || {
+        echo "CoffeeOS: expected BIOS CoffeeKernel label is missing: $coffee_label" >&2
+        exit 1
+    }
+    sed -i -E "s/^default[[:space:]]+.*/default $coffee_label/; s/^ontimeout[[:space:]]+.*/ontimeout $coffee_label/" "$bios_cfg"
+    grep -Eq "^default[[:space:]]+$coffee_label$" "$bios_cfg" || {
+        echo "CoffeeOS: failed to set BIOS default label to $coffee_label" >&2
+        exit 1
+    }
+    grep -Eq "^ontimeout[[:space:]]+$coffee_label$" "$bios_cfg" || {
+        echo "CoffeeOS: failed to set BIOS timeout label to $coffee_label" >&2
+        exit 1
+    }
+    echo "CoffeeOS: BIOS Syslinux default now selects $coffee_label"
+fi
+
 found=0
 for cfg in binary/boot/grub/grub.cfg binary/isolinux/live.cfg; do
     [ -f "$cfg" ] || continue
