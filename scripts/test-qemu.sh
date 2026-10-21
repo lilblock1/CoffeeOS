@@ -10,11 +10,21 @@ case "$MODE" in
   --bios) ;;
   --uefi)
     OVMF=''
+    VARS=''
     for fw in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
       [[ -f "$fw" ]] && { OVMF="$fw"; break; }
     done
-    [[ -n "$OVMF" ]] || { echo 'OVMF firmware not found; install ovmf.' >&2; exit 4; }
-    args+=(-drive "if=pflash,format=raw,readonly=on,file=$OVMF")
+    for fw in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do
+      [[ -f "$fw" ]] && { VARS="$fw"; break; }
+    done
+    [[ -n "$OVMF" && -n "$VARS" ]] || { echo 'OVMF firmware/variable store not found; install ovmf.' >&2; exit 4; }
+    tmpvars=$(mktemp --suffix=.fd)
+    cp -- "$VARS" "$tmpvars"
+    trap 'rm -f -- "$tmpvars"' EXIT
+    args+=(
+      -drive "if=pflash,format=raw,readonly=on,file=$OVMF"
+      -drive "if=pflash,format=raw,file=$tmpvars"
+    )
     ;;
   *) echo 'Usage: test-qemu.sh [--bios|--uefi]' >&2; exit 2;;
 esac
