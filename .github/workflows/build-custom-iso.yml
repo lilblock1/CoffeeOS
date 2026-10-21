@@ -5,7 +5,15 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/build-custom-iso.yml
+      # Desktop, installer and package changes should rebuild the ISO, but they
+      # should reuse CoffeeKernel when the kernel inputs are unchanged.
+      - live-build/**
+      - scripts/build-iso.sh
+      - scripts/build-coffeeos-system-package.sh
+      - scripts/build-coffeekernel-for-iso.sh
+      - scripts/build-kernel.sh
+      - kernel/**
+      - optimization/cache-policy.conf
 
 permissions:
   contents: write
@@ -25,6 +33,69 @@ jobs:
     steps:
       - name: Check out CoffeeOS
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore reusable CoffeeKernel cache
+        id: coffeekernel-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/coffeekernel
+          # The final run-id component makes every successful save immutable.
+          # restore-keys selects the newest cache with identical CoffeeKernel
+          # build inputs. The build script still checks Debian source/config
+          # versions inside the cache before it trusts a package pair.
+          key: coffeekernel-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kernel/configs/coffee.conf', 'kernel/tools/configure.py', 'scripts/build-kernel.sh', 'scripts/build-coffeekernel-for-iso.sh', 'optimization/cache-policy.conf') }}-${{ github.run_id }}
+          restore-keys: |
+            coffeekernel-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kernel/configs/coffee.conf', 'kernel/tools/configure.py', 'scripts/build-kernel.sh', 'scripts/build-coffeekernel-for-iso.sh', 'optimization/cache-policy.conf') }}-
+
+      - name: Seed cache from latest CoffeeKernel release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          seed="$PWD/.cache/release-seed"
+          rm -rf "$seed"
+          mkdir -p "$seed"
+
+          # A release is only a candidate when none of the files that define
+          # CoffeeKernel changed since that release tag. Debian source-version
+          # compatibility is checked again inside the Debian build container.
+          tag="$(gh release list --limit 100 --json tagName,publishedAt \
+            --jq 'map(select(.tagName | startswith("coffeeos-coffeekernel-"))) | sort_by(.publishedAt) | reverse | .[0].tagName // ""')"
+          if [[ -z "$tag" ]]; then
+            echo "[CoffeeOS kernel] No prior CoffeeKernel release is available yet."
+            exit 0
+          fi
+
+          git fetch --force --no-tags origin "refs/tags/$tag:refs/tags/$tag" || {
+            echo "[CoffeeOS kernel] Could not fetch release tag $tag; normal cache/build path will be used."
+            exit 0
+          }
+          tag_commit="$(git rev-list -n 1 "$tag")"
+
+          if ! git diff --quiet "$tag_commit" HEAD -- \
+            kernel/configs/coffee.conf \
+            kernel/tools/configure.py \
+            scripts/build-kernel.sh \
+            scripts/build-coffeekernel-for-iso.sh \
+            optimization/cache-policy.conf; then
+            echo "[CoffeeOS kernel] Kernel inputs changed since $tag; released kernel will not be reused."
+            exit 0
+          fi
+
+          if gh release download "$tag" \
+            --pattern 'linux-image-*-coffee_*.deb' \
+            --pattern 'linux-headers-*-coffee_*.deb' \
+            --pattern 'SHA256SUMS' \
+            --dir "$seed"; then
+            printf '%s\n' "$tag" > "$seed/.release-tag"
+            echo "[CoffeeOS kernel] Downloaded reusable kernel candidate from $tag."
+          else
+            echo "[CoffeeOS kernel] Release $tag does not contain a complete reusable kernel pair."
+            rm -rf "$seed"
+            mkdir -p "$seed"
+          fi
 
       - name: Free runner disk space
         run: |
@@ -64,7 +135,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xorriso
 
-      - name: Build CoffeeKernel and CoffeeOS ISO in Debian 13
+      - name: Build or reuse CoffeeKernel and build CoffeeOS ISO in Debian 13
         run: |
           set -Eeuo pipefail
           mkdir -p dist
@@ -100,22 +171,96 @@ jobs:
               echo "[CoffeeOS] Debian kernel source/config versions:"
               dpkg-query -W linux-source-6.12 linux-config-6.12
 
+              # If Actions cache did not already contain the exact internal
+              # cache key, validate the latest released kernel against this
+              # Debian build environment and seed the normal cache directory.
+              seed=/workspace/.cache/release-seed
+              if [[ -s "$seed/SHA256SUMS" && -s "$seed/.release-tag" ]]; then
+                if (cd "$seed" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+                  shopt -s nullglob
+                  seed_images=("$seed"/linux-image-*-coffee_*.deb)
+                  seed_headers=("$seed"/linux-headers-*-coffee_*.deb)
+                  shopt -u nullglob
+                  if [[ ${#seed_images[@]} -eq 1 && ${#seed_headers[@]} -eq 1 ]]; then
+                    source_version="$(dpkg-query -W -f='${Version}' linux-source-6.12 2>/dev/null || true)"
+                    config_version="$(dpkg-query -W -f='${Version}' linux-config-6.12 2>/dev/null || true)"
+                    CACHE_ABI=1000
+                    POLICY=/workspace/optimization/cache-policy.conf
+                    # shellcheck disable=SC1090
+                    [[ ! -f "$POLICY" ]] || source "$POLICY"
+                    CACHE_ABI=${COFFEE_KERNEL_CACHE_ABI:-1000}
+                    expected_version="${source_version}+coffee${CACHE_ABI}"
+                    image_version="$(dpkg-deb -f "${seed_images[0]}" Version 2>/dev/null || true)"
+                    header_version="$(dpkg-deb -f "${seed_headers[0]}" Version 2>/dev/null || true)"
+
+                    if [[ -n "$source_version" && "$source_version" == "$config_version" \
+                          && "$image_version" == "$expected_version" \
+                          && "$header_version" == "$expected_version" ]]; then
+                      fragment_sha="$(sha256sum /workspace/kernel/configs/coffee.conf | awk "{print \\$1}")"
+                      gccver="$(gcc -dumpfullversion -dumpversion 2>/dev/null || gcc -dumpversion 2>/dev/null || echo unknown)"
+                      material="source=$source_version\nconfig=$config_version\nfragment=$fragment_sha\ngcc=$gccver\narch=$(dpkg --print-architecture)\ncache-abi=$CACHE_ABI\n"
+                      key="$(printf "%b" "$material" | sha256sum | awk "{print \\$1}")"
+                      cache="/workspace/.cache/coffeekernel/$key"
+                      tmp="$cache.release.$$"
+                      rm -rf "$tmp"
+                      mkdir -p "$tmp"
+                      cp -f -- "${seed_images[0]}" "${seed_headers[0]}" "$seed/SHA256SUMS" "$tmp/"
+                      release_tag="$(cat "$seed/.release-tag")"
+                      cat > "$tmp/build-info.json" <<JSON
+{"source":"github-release","release":"$release_tag","debian_source_version":"$source_version","cache_key":"$key"}
+JSON
+                      if (cd "$tmp" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+                        rm -rf "$cache"
+                        mv "$tmp" "$cache"
+                        echo "[CoffeeOS kernel] RELEASE HIT: seeded exact cache key from $release_tag"
+                      else
+                        rm -rf "$tmp"
+                      fi
+                    else
+                      echo "[CoffeeOS kernel] Released package version does not match current Debian kernel source; ignoring release seed."
+                      echo "[CoffeeOS kernel] expected=$expected_version image=$image_version headers=$header_version"
+                    fi
+                  fi
+                else
+                  echo "[CoffeeOS kernel] Release seed checksum validation failed; ignoring it."
+                fi
+              fi
+
               rm -rf optimized-kernel-build dist/kernels/coffee build
               rm -f live-build/config/packages.chroot/linux-image-*-coffee_*.deb 2>/dev/null || true
               mkdir -p .cache/coffeekernel .cache/ccache dist
 
-              echo "[CoffeeOS] Compiling CoffeeKernel with 2 jobs..."
+              echo "[CoffeeOS] Restoring or compiling CoffeeKernel..."
               bash scripts/build-coffeekernel-for-iso.sh --mode deep --jobs 2 \
                 2>&1 | tee dist/github-coffeekernel-build.log
 
               echo "[CoffeeOS] CoffeeKernel packages:"
               ls -lh dist/kernels/coffee/
               sha256sum -c dist/kernels/coffee/SHA256SUMS
+              cat live-build/config/includes.chroot/usr/share/coffeeos/kernel-build-status.txt
 
               echo "[CoffeeOS] Building ISO with CoffeeKernel staged..."
               bash scripts/build-iso.sh \
                 2>&1 | tee dist/github-custom-iso-build.log
             '
+
+      - name: Detect reusable CoffeeKernel cache
+        id: kernel-cache-ready
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          if find .cache/coffeekernel -mindepth 2 -maxdepth 2 -type f -name SHA256SUMS -print -quit 2>/dev/null | grep -q .; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save reusable CoffeeKernel cache
+        if: always() && steps.kernel-cache-ready.outputs.ready == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/coffeekernel
+          key: coffeekernel-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kernel/configs/coffee.conf', 'kernel/tools/configure.py', 'scripts/build-kernel.sh', 'scripts/build-coffeekernel-for-iso.sh', 'optimization/cache-policy.conf') }}-${{ github.run_id }}
 
       - name: Verify CoffeeKernel is staged
         run: |
@@ -127,6 +272,7 @@ jobs:
           test "${#hdrs[@]}" -eq 1
           dpkg-deb -f "${imgs[0]}" Package Version Architecture
           sha256sum -c dist/kernels/coffee/SHA256SUMS
+          cat live-build/config/includes.chroot/usr/share/coffeeos/kernel-build-status.txt
 
       - name: Verify ISO
         run: |
@@ -166,5 +312,6 @@ jobs:
             dist/kernels/coffee/linux-image-*-coffee_*.deb \
             dist/kernels/coffee/linux-headers-*-coffee_*.deb \
             dist/kernels/coffee/SHA256SUMS \
+            dist/kernels/coffee/build-info.json \
             --title "CoffeeOS CoffeeKernel ISO ${GITHUB_RUN_NUMBER}" \
-            --notes "CoffeeOS development ISO built on Debian 13 Trixie with the custom CoffeeKernel compiled from Debian's patched linux-source-6.12 using the CoffeeOS kernel configuration. Secure Boot support is not enabled for this development image."
+            --notes "CoffeeOS development ISO built on Debian 13 Trixie with a verified CoffeeKernel package pair. CoffeeKernel is reused from the persistent cache or a compatible prior release when kernel inputs are unchanged, and rebuilt automatically when required. Secure Boot support is not enabled for this development image."
