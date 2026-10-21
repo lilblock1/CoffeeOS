@@ -94,7 +94,7 @@ def run():
     packages = []
     for group in selected:
         for package in PACKAGE_GROUPS[group]:
-            if package not in packages:
+            if package != "gamescope" and package not in packages:
                 packages.append(package)
 
     try:
@@ -102,10 +102,19 @@ def run():
         # other choices and keeps one deterministic path through APT.
         check_target_env_call(["dpkg", "--add-architecture", "i386"])
         check_target_env_call(["apt-get", "update"])
-        check_target_env_call(
-            ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "-q", "-y", "install"]
-            + packages
-        )
+        if packages:
+            check_target_env_call(
+                ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "-q", "-y", "install"]
+                + packages
+            )
+
+        # Gamescope is not in Trixie stable. Reuse CoffeeOS' audited gaming
+        # setup path so the installer enables only official trixie-backports
+        # and explicitly selects that suite for Gamescope.
+        if "gamescope" in selected:
+            check_target_env_call(
+                ["/usr/local/sbin/coffee-gaming-setup", "--yes", "gamescope"]
+            )
     except subprocess.CalledProcessError as exc:
         return (
             "Optional software installation failed",
