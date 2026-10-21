@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# CoffeeOS owns the user-facing installer command. Debian's maintained
-# install-debian helper remains the backend so installer integration stays
-# compatible with calamares-settings-debian.
+# CoffeeOS owns the user-facing installer command. Debian 13/Trixie ships the
+# privileged Calamares wrapper as calamares-install-debian. Older Debian live
+# images used install-debian, so keep that as a compatibility fallback.
+if command -v calamares-install-debian >/dev/null 2>&1; then
+  exec calamares-install-debian "$@"
+fi
 if command -v install-debian >/dev/null 2>&1; then
   exec install-debian "$@"
 fi
-if command -v calamares >/dev/null 2>&1; then
-  exec calamares "$@"
+
+# Last-resort fallback: never start Calamares unprivileged. The unpackfs job
+# needs root to mount the live SquashFS and copy it to the target filesystem.
+if command -v calamares >/dev/null 2>&1 && command -v pkexec >/dev/null 2>&1; then
+  if command -v xhost >/dev/null 2>&1; then
+    xhost +si:localuser:root >/dev/null 2>&1 || true
+  fi
+  exec pkexec calamares "$@"
 fi
+
 echo "CoffeeOS installer backend is not available." >&2
 exit 127
