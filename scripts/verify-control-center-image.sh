@@ -17,6 +17,21 @@ else
 fi
 for path in \
   /usr/bin/unsquashfs \
+  /usr/local/bin/coffee-installer-preflight \
+  /usr/local/bin/coffee-installer-report \
+  /usr/local/bin/coffee-hardware-health \
+  /usr/local/bin/coffee-driver-info \
+  /usr/local/bin/coffee-network-settings \
+  /usr/local/bin/coffee-accessibility \
+  /usr/local/bin/coffee-clipboard-history \
+  /usr/local/bin/coffee-app-center \
+  /usr/local/sbin/coffee-recovery \
+  /usr/local/sbin/coffee-secure-boot \
+  /usr/local/sbin/coffee-platform-admin \
+  /usr/local/sbin/coffeeos-ci-install \
+  /etc/systemd/system/coffeeos-ci-install.service \
+  /etc/grub.d/41_coffeeos_safe_graphics \
+  /usr/share/applications/coffee-app-center.desktop \
   /usr/local/bin/coffee-control-center \
   /usr/local/bin/coffee-hardware-settings \
   /usr/local/bin/coffee-first-boot \

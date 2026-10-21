@@ -19,6 +19,11 @@ COMMANDS={
  'vulkan':['vulkaninfo','--summary'],
  'gaming':['coffee-gaming-mode','--status'],
  'performance':['coffee-performance-status'],
+ 'hardware-health':['coffee-hardware-health'],
+ 'graphics-drivers':['coffee-driver-info'],
+ 'recovery':['/usr/local/sbin/coffee-recovery','status'],
+ 'secure-boot':['/usr/local/sbin/coffee-secure-boot','status'],
+ 'firmware':['fwupdmgr','get-devices'],
 }
 def cap(argv):
     try:

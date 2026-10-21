@@ -20,6 +20,22 @@ def create(label='manual'):
 def list_():
     if SNAPROOT.exists():
         for p in sorted(SNAPROOT.glob('coffeeos-*'),reverse=True):print(p.name)
+def restore_next(name):
+    root();ensure()
+    if not re.fullmatch(r'coffeeos-[A-Za-z0-9._-]+',name):raise SystemExit('Invalid snapshot name.')
+    src=SNAPROOT/name
+    if not src.exists():raise SystemExit('Snapshot not found.')
+    opts=run(['findmnt','-n','-o','OPTIONS','/'],capture=True,timeout=5).stdout
+    if 'subvol=' in opts or 'subvolid=' in opts:
+        raise SystemExit('Automatic restore is disabled because / is pinned to a Btrfs subvolume in mount options. Use the live recovery environment for this layout.')
+    dest=SNAPROOT/('restore-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
+    run(['btrfs','subvolume','snapshot',str(src),str(dest)],check=True,timeout=120)
+    info=run(['btrfs','subvolume','show',str(dest)],capture=True,timeout=20).stdout
+    m=re.search(r'Subvolume ID:\s*(\d+)',info)
+    if not m:raise SystemExit('Could not determine restore subvolume ID.')
+    run(['btrfs','subvolume','set-default',m.group(1),'/'],check=True,timeout=30)
+    print('Snapshot restore prepared for next boot: '+str(dest))
+
 def delete(name):
     root()
     if not re.fullmatch(r'coffeeos-[A-Za-z0-9._-]+',name):raise SystemExit('Invalid snapshot name.')
@@ -35,11 +51,12 @@ def repair(kind):
         if not Path('/boot/efi').is_dir():raise SystemExit('/boot/efi is unavailable.')
         run(['grub-install','--target=x86_64-efi','--efi-directory=/boot/efi','--bootloader-id=CoffeeOS'],check=True,timeout=300);run(['update-grub'],check=True)
 def main():
-    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);sp.add_parser('status');p=sp.add_parser('snapshot-create');p.add_argument('label',nargs='?',default='manual');sp.add_parser('snapshot-list');p=sp.add_parser('snapshot-delete');p.add_argument('name');p=sp.add_parser('repair');p.add_argument('kind',choices=('initramfs','grub','all','uefi'));sp.add_parser('fsck-next');sp.add_parser('clear-warning');a=ap.parse_args()
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);sp.add_parser('status');p=sp.add_parser('snapshot-create');p.add_argument('label',nargs='?',default='manual');sp.add_parser('snapshot-list');p=sp.add_parser('snapshot-delete');p.add_argument('name');p=sp.add_parser('snapshot-restore-next');p.add_argument('name');p=sp.add_parser('repair');p.add_argument('kind',choices=('initramfs','grub','all','uefi'));sp.add_parser('fsck-next');sp.add_parser('clear-warning');a=ap.parse_args()
     if a.cmd=='status':status()
     elif a.cmd=='snapshot-create':create(a.label)
     elif a.cmd=='snapshot-list':list_()
     elif a.cmd=='snapshot-delete':delete(a.name)
+    elif a.cmd=='snapshot-restore-next':restore_next(a.name)
     elif a.cmd=='repair':repair(a.kind)
     elif a.cmd=='fsck-next':root();Path('/forcefsck').touch();print('Filesystem check requested for next boot.')
     elif a.cmd=='clear-warning':root();Path('/var/lib/coffeeos/recovery-recommended').unlink(missing_ok=True)

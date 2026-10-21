@@ -11,9 +11,9 @@ SBIN=INC/'usr/local/sbin'
 class TestControlCenterIntegration(unittest.TestCase):
     def test_control_center_is_real_frontend(self):
         text=(BIN/'coffee-control-center').read_text()
-        for title in ('Overview','Display','Bluetooth','Audio','Power & Battery','Input & Region','Account & Security','Apps & Startup','System & Recovery','Performance','Gaming','Appearance','Software & Drivers','Updates'):
+        for title in ('Overview','Display','Bluetooth','Audio','Network+','Power & Battery','Input & Region','Accessibility','Account & Security','Apps & Startup','System','Hardware & Firmware','Recovery Center','Performance','Gaming','Appearance','Software & Drivers','Updates'):
             self.assertIn(title,text)
-        for backend in ('coffee-kernel-profile','coffee-gaming-setup','coffee-update','coffee-appearance','coffee-hardware-settings','coffee-desktop-settings','coffee-admin-settings','coffee-support-bundle'):
+        for backend in ('coffee-kernel-profile','coffee-gaming-setup','coffee-update','coffee-appearance','coffee-hardware-settings','coffee-desktop-settings','coffee-admin-settings','coffee-support-bundle','coffee-network-settings','coffee-accessibility','coffee-hardware-health','coffee-driver-info','coffee-recovery','coffee-secure-boot','coffee-platform-admin','coffee-app-center'):
             self.assertIn(backend,text)
         self.assertIn("['pkexec'",text)
         self.assertNotIn('shell=True',text)

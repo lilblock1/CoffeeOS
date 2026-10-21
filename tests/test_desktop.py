@@ -19,6 +19,8 @@ class TestDesktopConfig(unittest.TestCase):
     def test_installer_has_unsquashfs_dependency(self):
         packages=set((ROOT/'live-build/config/package-lists/20-installer.list.chroot').read_text().split())
         self.assertIn('squashfs-tools', packages)
+        self.assertIn('shim-signed',packages)
+        self.assertIn('grub-efi-amd64-signed',packages)
 
     def test_installed_target_removes_live_installer_launcher(self):
         job=(CHROOT/'usr/lib/calamares/modules/coffeeapps/main.py').read_text()
@@ -93,7 +95,7 @@ class TestDesktopConfig(unittest.TestCase):
         self.assertEqual(fuzzel.get('main','terminal'),'foot')
         self.assertTrue((CHROOT/'etc/xdg/mako/config').exists())
         packages=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
-        for pkg in ('cage','gtkgreet','python3-gi','gir1.2-gtk-3.0','waybar','labwc','swaylock','swayidle','gammastep','upower','nftables','smartmontools','udiskie'):
+        for pkg in ('cage','gtkgreet','python3-gi','gir1.2-gtk-3.0','waybar','labwc','swaylock','swayidle','gammastep','upower','nftables','smartmontools','udiskie','fwupd','mokutil','sbsigntool','wl-clipboard','orca','lm-sensors','nvme-cli','bluez-obexd'):
             self.assertIn(pkg,packages)
 
 
@@ -118,7 +120,7 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_python_files_compile_without_gui(self):
         import ast
-        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot','coffee-desktop-settings','coffee-night-light','coffee-gaming-indicator','coffee-support-bundle'):
+        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot','coffee-desktop-settings','coffee-night-light','coffee-gaming-indicator','coffee-support-bundle','coffee-installer-preflight','coffee-installer-report','coffee-hardware-health','coffee-driver-info','coffee-network-settings','coffee-accessibility','coffee-clipboard-history','coffee-app-center'):
             ast.parse((BIN/name).read_text())
 
 class TestDesktopAppearance(unittest.TestCase):

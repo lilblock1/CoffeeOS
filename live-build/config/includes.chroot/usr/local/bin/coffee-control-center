@@ -784,7 +784,7 @@ class CoffeeControlCenter(Gtk.Window):
         self.recovery_center_status=self.label(''); box.pack_start(self.recovery_center_status,False,False,0)
         self.section(box,'Btrfs snapshots')
         self.snapshot_list=Gtk.ComboBoxText(); self.row(box,'Snapshots','Available CoffeeOS read-only snapshots.',self.snapshot_list)
-        row=Gtk.Box(spacing=8); row.pack_start(self.button('Create Snapshot',self.snapshot_create,True),False,False,0); row.pack_start(self.button('Delete Selected',self.snapshot_delete),False,False,0); box.pack_start(row,False,False,0)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Create Snapshot',self.snapshot_create,True),False,False,0); row.pack_start(self.button('Restore Selected Next Boot',self.snapshot_restore),False,False,0); row.pack_start(self.button('Delete Selected',self.snapshot_delete),False,False,0); box.pack_start(row,False,False,0)
         self.section(box,'Boot and repair')
         row=Gtk.Box(spacing=8); row.pack_start(self.button('Debian Fallback Next Boot',self.recovery_next,True),False,False,0); row.pack_start(self.button('Rollback Packages',self.rollback_update),False,False,0); row.pack_start(self.button('Check Filesystem Next Boot',self.fsck_next),False,False,0); box.pack_start(row,False,False,0)
         row=Gtk.Box(spacing=8); row.pack_start(self.button('Rebuild Initramfs',lambda *_:self.repair_system('initramfs')),False,False,0); row.pack_start(self.button('Rebuild GRUB',lambda *_:self.repair_system('grub')),False,False,0); row.pack_start(self.button('Repair UEFI GRUB',lambda *_:self.repair_system('uefi')),False,False,0); box.pack_start(row,False,False,0)
@@ -807,6 +807,10 @@ class CoffeeControlCenter(Gtk.Window):
         elif self.snapshot_list.get_model() is not None:self.snapshot_list.set_active(0)
         rc,out=capture(['/usr/local/sbin/coffee-secure-boot','status'],5);self.secureboot_status.set_text(out if rc==0 else 'Secure Boot status unavailable: '+out)
     def snapshot_create(self,*_):self.action('Create Btrfs snapshot',['pkexec','/usr/local/sbin/coffee-recovery','snapshot-create','manual'],lambda _rc:self.refresh_recovery())
+    def snapshot_restore(self,*_):
+        name=self.snapshot_list.get_active_id()
+        if name and self.confirm('Prepare snapshot restore?', 'CoffeeOS will create a writable restore copy and set it as the default Btrfs subvolume for the next boot. This is available only on compatible Btrfs layouts.'):
+            self.action('Prepare snapshot restore',['pkexec','/usr/local/sbin/coffee-recovery','snapshot-restore-next',name],lambda _rc:self.refresh_recovery())
     def snapshot_delete(self,*_):
         name=self.snapshot_list.get_active_id()
         if name and self.confirm('Delete snapshot?',name):self.action('Delete Btrfs snapshot',['pkexec','/usr/local/sbin/coffee-recovery','snapshot-delete',name],lambda _rc:self.refresh_recovery())

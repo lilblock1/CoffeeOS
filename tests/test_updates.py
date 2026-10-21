@@ -41,6 +41,10 @@ class TestInPlaceUpdates(unittest.TestCase):
         self.assertIn('ROLLBACK=',text)
         self.assertIn('save_rollback',text)
         self.assertIn('rollback-latest',text)
+        self.assertIn("'plan'",text)
+        self.assertIn("'changelog'",text)
+        self.assertIn('update_plan',text)
+        self.assertIn('snapshot-create',text)
         self.assertIn("Refusing to install a secret signing key",text)
 
     def test_status_json_is_non_privileged(self):

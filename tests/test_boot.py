@@ -31,6 +31,24 @@ class TestBootRecipe(unittest.TestCase):
         hook=LB/'config/hooks/live/030-enable-boot-marker.hook.chroot'
         self.assertIn('systemctl enable coffeeos-boot-ok.service', hook.read_text())
 
+    def test_full_install_smoke_test(self):
+        s=(ROOT/'scripts/install-smoke-test.sh').read_text()
+        self.assertIn('coffeeos.ci-install=1',s)
+        self.assertIn('COFFEEOS_CI_INSTALL_OK',s)
+        self.assertIn('COFFEEOS_BOOT_OK',s)
+        self.assertIn('qemu-img create',s)
+        service=(LB/'config/includes.chroot/etc/systemd/system/coffeeos-ci-install.service').read_text()
+        self.assertIn('ConditionKernelCommandLine=coffeeos.ci-install=1',service)
+        helper=(LB/'config/includes.chroot/usr/local/sbin/coffeeos-ci-install').read_text()
+        self.assertIn('unsquashfs',helper)
+        self.assertIn('grub-install',helper)
+
+    def test_installed_safe_graphics_grub_entry(self):
+        cfg=(LB/'config/includes.chroot/etc/grub.d/41_coffeeos_safe_graphics').read_text()
+        self.assertIn("CoffeeOS (Safe Graphics)",cfg)
+        self.assertIn('coffeeos.software-render=1',cfg)
+        self.assertIn('nomodeset',cfg)
+
     def test_qemu_smoke_test_requires_marker(self):
         s=(ROOT/'scripts/boot-smoke-test.sh').read_text()
         self.assertIn('qemu-system-x86_64', s)
