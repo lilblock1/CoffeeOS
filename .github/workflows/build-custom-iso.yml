@@ -10,6 +10,12 @@ on:
 permissions:
   contents: write
 
+# Only one CoffeeKernel ISO build should run at a time. A newer run supersedes
+# any older run that also uses this concurrency group.
+concurrency:
+  group: coffeeos-coffeekernel-iso
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build CoffeeKernel ISO
