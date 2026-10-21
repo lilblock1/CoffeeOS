@@ -1,11 +1,7 @@
 # CoffeeOS ISO request
 
-Final replacement CoffeeKernel ISO request after validation passed.
-Includes:
-- approved CoffeeOS espresso Plymouth splash
-- animated steam
-- real boot progress bar
-- generated SVG-to-PNG Plymouth assets
-- corrected CoffeeKernel live-boot staging
+Retry after fixing CoffeeKernel live staging for Debian Trixie live-build.
+The binary hook now extracts CoffeeKernel from filesystem.squashfs when
+chroot/boot has already been removed, then verifies GRUB/Syslinux reference it.
 
 Requested: 2026-10-21

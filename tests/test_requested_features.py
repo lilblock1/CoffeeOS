@@ -27,10 +27,12 @@ class TestRequestedCoffeeOSFeatures(unittest.TestCase):
     def test_binary_hook_stages_coffeekernel_before_boot_menu_rewrite(self):
         hook=(ROOT/'live-build/config/hooks/live/060-prefer-coffeekernel.hook.binary').read_text()
         self.assertIn('chroot/boot/vmlinuz-*-coffee',hook)
+        self.assertIn('binary/live/filesystem.squashfs',hook)
+        self.assertIn('unsquashfs -cat "$squashfs" "boot/$kernel"',hook)
         self.assertIn('cp -f -- "$source_kernel" "binary/live/$kernel"',hook)
         self.assertIn('cp -f -- "$source_initrd" "binary/live/$initrd"',hook)
         self.assertIn('no boot menu references /live/$kernel',hook)
-        self.assertIn('CoffeeKernel staged and selected as live boot default',hook)
+        self.assertIn('CoffeeKernel staged from $source_mode and selected as live boot default',hook)
 
     def test_kernel_manager_inventory_next_boot_and_safety(self):
         m=load_script('coffee_kernel_manager_feature_test',SBIN/'coffee-kernel-manager')

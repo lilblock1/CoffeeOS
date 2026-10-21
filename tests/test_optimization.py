@@ -107,8 +107,10 @@ class TestOptimizationPipeline(unittest.TestCase):
     def test_coffeekernel_is_preferred_in_live_boot_without_removing_fallback(self):
         hook=(ROOT/'live-build/config/hooks/live/060-prefer-coffeekernel.hook.binary').read_text()
         self.assertIn('chroot/boot/vmlinuz-*-coffee',hook)
+        self.assertIn('binary/live/filesystem.squashfs',hook)
+        self.assertIn('unsquashfs -cat "$squashfs" "boot/$kernel"',hook)
         self.assertIn('cp -f -- "$source_kernel" "binary/live/$kernel"',hook)
-        self.assertIn('CoffeeKernel staged and selected as live boot default',hook)
+        self.assertIn('CoffeeKernel staged from $source_mode and selected as live boot default',hook)
         self.assertNotIn('rm -f binary/live/vmlinuz',hook)
         grub=(ROOT/'live-build/config/bootloaders/grub-pc/grub.cfg').read_text()
         self.assertNotIn('nomodeset',grub)
