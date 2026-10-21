@@ -189,7 +189,9 @@ def ensure_github_feed(*, strict=False):
     url,suite=feed_info()
     if url and url != OFFICIAL_GITHUB_FEED: return ''
     suite=suite if suite in CHANNELS else DEFAULT_GITHUB_CHANNEL
-    if url==OFFICIAL_GITHUB_FEED and SOURCE.exists() and KEYRING.exists(): return ''
+    # The built-in GitHub source refreshes its public signing key on every
+    # check. GitHub HTTPS/repository ownership is the bootstrap trust anchor;
+    # the OpenPGP signature then protects APT metadata/package integrity.
     try:
         with tempfile.TemporaryDirectory() as td:
             key=Path(td)/'coffeeos-update-key.gpg'
