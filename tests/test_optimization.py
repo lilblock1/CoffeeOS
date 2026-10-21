@@ -80,6 +80,12 @@ class TestOptimizationPipeline(unittest.TestCase):
         verify=(ROOT/'scripts/verify-iso.sh').read_text()
         self.assertIn('COFFEEOS_VERIFY_SQUASHFS', verify)
         self.assertIn('verify_pids', verify)
+        workflow=(ROOT/'.github/workflows/build-custom-iso.yml').read_text()
+        self.assertIn('Restore reusable Deep optimization cache', workflow)
+        self.assertIn('COFFEE_OPT_CACHE_DIR=/workspace/.cache/optimized-packages', workflow)
+        self.assertIn('build-optimized-packages.sh --mode deep', workflow)
+        self.assertIn('Save reusable Deep optimization cache', workflow)
+        self.assertIn('dist/optimized/STATUS.tsv', workflow)
 
     def test_kernel_is_one_runtime_tunable_performance_kernel(self):
         cfg=(ROOT/'kernel/configs/coffee.conf').read_text()
