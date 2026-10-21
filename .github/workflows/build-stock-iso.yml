@@ -1,0 +1,78 @@
+name: Build CoffeeOS Stock ISO
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-stock-iso.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build bootable stock-kernel ISO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out CoffeeOS
+        uses: actions/checkout@v4
+
+      - name: Install ISO build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            live-build debootstrap squashfs-tools xorriso \
+            grub-pc-bin grub-efi-amd64-bin mtools dosfstools \
+            isolinux syslinux-common \
+            ca-certificates gnupg rsync python3 \
+            dpkg-dev fakeroot apt-utils
+
+      - name: Force stock Debian kernel path
+        run: |
+          rm -rf optimized-kernel-build dist/kernels/coffee
+          rm -f live-build/config/packages.chroot/linux-image-*-coffee_*.deb 2>/dev/null || true
+          mkdir -p dist
+          echo "Building CoffeeOS with Debian linux-image-amd64; CoffeeKernel compile is intentionally skipped."
+
+      - name: Build CoffeeOS ISO
+        env:
+          COFFEE_KERNEL_JOBS: "2"
+        run: |
+          sudo -E bash scripts/build-iso.sh 2>&1 | tee dist/github-stock-iso-build.log
+
+      - name: Verify ISO
+        run: |
+          set -Eeuo pipefail
+          iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
+          test -n "$iso"
+          test -s "$iso"
+          sha256sum -c "$iso.sha256"
+          xorriso -indev "$iso" -report_el_torito as_mkisofs > dist/iso-boot-layout.txt
+          ls -lh "$iso" "$iso.sha256"
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoffeeOS-stock-ISO
+          path: |
+            dist/*.iso
+            dist/*.iso.sha256
+            dist/github-stock-iso-build.log
+            dist/iso-boot-layout.txt
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Publish downloadable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
+          tag="coffeeos-stock-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" \
+            "$iso" "$iso.sha256" \
+            --title "CoffeeOS Stock ISO ${GITHUB_RUN_NUMBER}" \
+            --notes "Automatically built CoffeeOS ISO using Debian's stock linux-image-amd64 kernel. CoffeeKernel compilation is skipped so this produces a usable ISO while the custom-kernel build is being fixed."
