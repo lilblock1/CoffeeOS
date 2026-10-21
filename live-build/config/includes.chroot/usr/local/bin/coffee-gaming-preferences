@@ -3,11 +3,11 @@
 from __future__ import annotations
 import argparse, json, os, tempfile
 from pathlib import Path
-DEFAULTS={'hud':False,'gamescope':False}
+DEFAULTS={'hud':False,'gamescope':False,'gamemode':True}
 
 def path(): return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'coffeeos'/'gaming.json'
 def read():
-    data={'hud':False,'gamescope':False,'games':{}}
+    data={'hud':False,'gamescope':False,'gamemode':True,'games':{}}
     try:
         raw=json.loads(path().read_text())
         if isinstance(raw,dict):
@@ -15,7 +15,10 @@ def read():
                 if isinstance(raw.get(k),bool): data[k]=raw[k]
             if isinstance(raw.get('games'),dict):
                 for gid,v in raw['games'].items():
-                    if isinstance(v,dict): data['games'][str(gid)]={k:bool(v[k]) for k in DEFAULTS if isinstance(v.get(k),bool)}
+                    if isinstance(v,dict):
+                        item={k:bool(v[k]) for k in DEFAULTS if isinstance(v.get(k),bool)}
+                        if isinstance(v.get('fps_limit'),int) and 0<=v['fps_limit']<=1000: item['fps_limit']=v['fps_limit']
+                        data['games'][str(gid)]=item
     except (OSError,ValueError,TypeError): pass
     return data
 def write(data):
@@ -29,14 +32,18 @@ def main():
     s=sp.add_parser('set'); s.add_argument('key',choices=DEFAULTS); s.add_argument('value',choices=('on','off'))
     gs=sp.add_parser('game-show'); gs.add_argument('game_id')
     gt=sp.add_parser('game-set'); gt.add_argument('game_id'); gt.add_argument('key',choices=DEFAULTS); gt.add_argument('value',choices=('on','off'))
+    gf=sp.add_parser('game-fps'); gf.add_argument('game_id'); gf.add_argument('fps_limit',type=int)
     gr=sp.add_parser('game-reset'); gr.add_argument('game_id')
     a=p.parse_args(); d=read()
-    if a.cmd=='show': print(json.dumps({'hud':d['hud'],'gamescope':d['gamescope']},sort_keys=True)); return 0
-    if a.cmd=='reset': d={'hud':False,'gamescope':False,'games':{}}; write(d); print(json.dumps({'hud':False,'gamescope':False},sort_keys=True)); return 0
+    if a.cmd=='show': print(json.dumps({k:d[k] for k in DEFAULTS},sort_keys=True)); return 0
+    if a.cmd=='reset': d={'hud':False,'gamescope':False,'gamemode':True,'games':{}}; write(d); print(json.dumps({k:d[k] for k in DEFAULTS},sort_keys=True)); return 0
     if a.cmd=='set': d[a.key]=a.value=='on'; write(d); print(json.dumps({'hud':d['hud'],'gamescope':d['gamescope']},sort_keys=True)); return 0
     gid=str(a.game_id)
     if a.cmd=='game-show':
-        merged={**{k:d[k] for k in DEFAULTS},**d['games'].get(gid,{})}; print(json.dumps(merged,sort_keys=True)); return 0
+        merged={**{k:d[k] for k in DEFAULTS},'fps_limit':0,**d['games'].get(gid,{})}; print(json.dumps(merged,sort_keys=True)); return 0
+    if a.cmd=='game-fps':
+        if not 0<=a.fps_limit<=1000: raise SystemExit('fps_limit must be 0..1000')
+        d['games'].setdefault(gid,{})['fps_limit']=a.fps_limit; write(d); print(json.dumps(d['games'][gid],sort_keys=True)); return 0
     if a.cmd=='game-reset': d['games'].pop(gid,None); write(d); print('{}'); return 0
     d['games'].setdefault(gid,{})[a.key]=a.value=='on'; write(d); print(json.dumps(d['games'][gid],sort_keys=True)); return 0
 if __name__=='__main__': raise SystemExit(main())

@@ -20,15 +20,17 @@ USAGE
 
 HUD=-1
 GAMESCOPE=-1
+GAMEMODE=-1
+FPS_LIMIT=0
 GAME_ID=${SteamAppId:-${SteamGameId:-}}
 USE_SCOPE=1
 # Per-user defaults are JSON and are parsed as data, never sourced as shell.
 if command -v coffee-gaming-preferences >/dev/null 2>&1; then
-  defaults=$(coffee-gaming-preferences show 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(bool(d.get("hud"))), int(bool(d.get("gamescope"))))' 2>/dev/null || echo '0 0')
+  defaults=$(coffee-gaming-preferences show 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(bool(d.get("hud"))), int(bool(d.get("gamescope"))), int(bool(d.get("gamemode", True))))' 2>/dev/null || echo '0 0')
 else
-  defaults='0 0'
+  defaults='0 0 1'
 fi
-read -r DEFAULT_HUD DEFAULT_GAMESCOPE <<<"$defaults"
+read -r DEFAULT_HUD DEFAULT_GAMESCOPE DEFAULT_GAMEMODE <<<"$defaults"
 if [[ ${1:-} == --status ]]; then
   runtime=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}/coffeeos-gaming-${UID}}
   state="$runtime/coffeeos-gaming/state"
@@ -40,6 +42,9 @@ while (( $# )); do
     --hud) HUD=1; shift ;;
     --no-hud) HUD=0; shift ;;
     --gamescope) GAMESCOPE=1; shift ;;
+    --gamemode) GAMEMODE=1; shift ;;
+    --no-gamemode) GAMEMODE=0; shift ;;
+    --fps-limit) FPS_LIMIT=${2:?missing FPS limit}; shift 2 ;;
     --no-gamescope) GAMESCOPE=0; shift ;;
     --game-id) GAME_ID=${2:?missing game id}; shift 2 ;;
     --no-scope) USE_SCOPE=0; shift ;;
@@ -52,11 +57,14 @@ if (( $# == 0 )); then usage; exit 2; fi
 # Steam exports SteamAppId/SteamGameId for launched titles. Per-game choices
 # override global defaults without requiring a separate launcher.
 if [[ -n $GAME_ID ]] && command -v coffee-gaming-preferences >/dev/null 2>&1; then
-  per_game=$(coffee-gaming-preferences game-show "$GAME_ID" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(bool(d.get("hud"))), int(bool(d.get("gamescope"))))' 2>/dev/null || true)
-  if [[ -n $per_game ]]; then read -r DEFAULT_HUD DEFAULT_GAMESCOPE <<<"$per_game"; fi
+  per_game=$(coffee-gaming-preferences game-show "$GAME_ID" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(bool(d.get("hud"))), int(bool(d.get("gamescope"))), int(bool(d.get("gamemode", True))), int(d.get("fps_limit",0)))' 2>/dev/null || true)
+  if [[ -n $per_game ]]; then read -r DEFAULT_HUD DEFAULT_GAMESCOPE DEFAULT_GAMEMODE GAME_FPS <<<"$per_game"; [[ ${FPS_LIMIT:-0} == 0 ]] && FPS_LIMIT=${GAME_FPS:-0}; fi
 fi
 (( HUD < 0 )) && HUD=$DEFAULT_HUD
 (( GAMESCOPE < 0 )) && GAMESCOPE=$DEFAULT_GAMESCOPE
+(( GAMEMODE < 0 )) && GAMEMODE=$DEFAULT_GAMEMODE
+[[ $FPS_LIMIT =~ ^[0-9]+$ ]] || FPS_LIMIT=0
+(( FPS_LIMIT <= 1000 )) || FPS_LIMIT=0
 
 runtime=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}/coffeeos-gaming-${UID}}
 state_dir="$runtime/coffeeos-gaming"
@@ -142,8 +150,14 @@ if (( GAMESCOPE )); then
     echo 'coffee-gaming-mode: Gamescope is not installed; continuing without it.' >&2
   fi
 fi
-if (( HUD )); then
+if (( HUD || FPS_LIMIT > 0 )); then
   if command -v mangohud >/dev/null 2>&1; then
+    if (( FPS_LIMIT > 0 )); then
+      existing=${MANGOHUD_CONFIG:-}
+      cap="fps_limit=$FPS_LIMIT"
+      (( HUD )) || cap="$cap,no_display"
+      export MANGOHUD_CONFIG="${existing:+$existing,}$cap"
+    fi
     cmd=(mangohud "${cmd[@]}")
   else
     echo 'coffee-gaming-mode: MangoHud is not installed; continuing without it.' >&2
@@ -157,9 +171,9 @@ elif [[ -x /usr/games/gamemoderun ]]; then
   # be present in every graphical-session PATH.
   gamemode_cmd=/usr/games/gamemoderun
 fi
-if [[ -n $gamemode_cmd ]]; then
+if (( GAMEMODE )) && [[ -n $gamemode_cmd ]]; then
   cmd=("$gamemode_cmd" "${cmd[@]}")
-else
+elif (( GAMEMODE )); then
   echo 'coffee-gaming-mode: GameMode is not installed; launching without daemon tuning.' >&2
 fi
 

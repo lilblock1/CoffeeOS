@@ -739,8 +739,10 @@ class CoffeeControlCenter(Gtk.Window):
         except ValueError: prefs={}
         hud=Gtk.Switch(); hud.set_active(bool(prefs.get('hud',False))); hud.connect('notify::active', self.gaming_pref, 'hud')
         gamescope=Gtk.Switch(); gamescope.set_active(bool(prefs.get('gamescope',False))); gamescope.connect('notify::active', self.gaming_pref, 'gamescope')
+        gamemode=Gtk.Switch(); gamemode.set_active(bool(prefs.get('gamemode',True))); gamemode.connect('notify::active', self.gaming_pref, 'gamemode')
         self.row(box,'MangoHud by default','Show MangoHud when launching through Coffee Gaming Mode.',hud)
         self.row(box,'Gamescope by default','Wrap games in fullscreen Gamescope when it is installed.',gamescope)
+        self.row(box,'GameMode by default','Use Feral GameMode for supported CPU/I/O tuning.',gamemode)
         actions=Gtk.Box(spacing=8)
         actions.pack_start(self.button('Gaming Diagnostics', lambda *_: self.launch(['foot','-e','coffee-gaming-info'])), False, False, 0)
         actions.pack_start(self.button('Reset Gaming Defaults', self.reset_gaming), False, False, 0)
@@ -757,6 +759,8 @@ class CoffeeControlCenter(Gtk.Window):
         self.game_id=Gtk.Entry(); self.game_id.set_placeholder_text('Steam App ID'); self.row(box,'Game ID','SteamAppId / SteamGameId.',self.game_id)
         self.game_hud=Gtk.Switch(); self.row(box,'MangoHud for this game','Overrides the global default.',self.game_hud)
         self.game_gamescope=Gtk.Switch(); self.row(box,'Gamescope for this game','Overrides the global default.',self.game_gamescope)
+        self.game_gamemode=Gtk.Switch(); self.row(box,'GameMode for this game','Overrides the global default.',self.game_gamemode)
+        self.game_fps=Gtk.SpinButton.new_with_range(0,1000,5); self.row(box,'FPS cap','0 disables the cap. Implemented through MangoHud without requiring the overlay to be visible.',self.game_fps)
         gr=Gtk.Box(spacing=8); gr.pack_start(self.button('Load Game Settings',self.load_game_settings),False,False,0); gr.pack_start(self.button('Save Game Settings',self.save_game_settings,True),False,False,0); gr.pack_start(self.button('Reset Game Override',self.reset_game_settings),False,False,0); box.pack_start(gr,False,False,0)
         self.section(box,'Controllers')
         self.controller_status=self.label(''); box.pack_start(self.controller_status,False,False,0); box.pack_start(self.button('Refresh Controllers',lambda *_:self.refresh_gaming_devices()),False,False,0)
@@ -777,11 +781,12 @@ class CoffeeControlCenter(Gtk.Window):
         rc,raw=capture(['coffee-gaming-preferences','game-show',gid],4)
         try: data=json.loads(raw) if rc==0 else {}
         except ValueError: data={}
-        self.game_hud.set_active(bool(data.get('hud',False))); self.game_gamescope.set_active(bool(data.get('gamescope',False))); self.set_status('Loaded settings for '+gid+'.')
+        self.game_hud.set_active(bool(data.get('hud',False))); self.game_gamescope.set_active(bool(data.get('gamescope',False))); self.game_gamemode.set_active(bool(data.get('gamemode',True))); self.game_fps.set_value(int(data.get('fps_limit',0))); self.set_status('Loaded settings for '+gid+'.')
     def save_game_settings(self,*_):
         gid=self.game_id.get_text().strip()
         if not gid: self.set_status('Enter a Steam App ID first.'); return
-        for key,value in (('hud',self.game_hud.get_active()),('gamescope',self.game_gamescope.get_active())): capture(['coffee-gaming-preferences','game-set',gid,key,'on' if value else 'off'],4)
+        for key,value in (('hud',self.game_hud.get_active()),('gamescope',self.game_gamescope.get_active()),('gamemode',self.game_gamemode.get_active())): capture(['coffee-gaming-preferences','game-set',gid,key,'on' if value else 'off'],4)
+        capture(['coffee-gaming-preferences','game-fps',gid,str(self.game_fps.get_value_as_int())],4)
         self.set_status('Saved per-game settings for '+gid+'.')
     def reset_game_settings(self,*_):
         gid=self.game_id.get_text().strip()
