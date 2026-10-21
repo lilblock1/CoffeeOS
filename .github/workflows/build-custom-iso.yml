@@ -81,7 +81,7 @@ jobs:
                 ca-certificates gnupg rsync curl python3 \
                 build-essential dpkg-dev devscripts fakeroot apt-utils \
                 bc bison flex kmod cpio libelf-dev libssl-dev libncurses-dev \
-                dwarves debhelper ccache \
+                dwarves debhelper ccache procps zstd \
                 linux-source-6.12 linux-config-6.12 \
                 linux-image-amd64 linux-headers-amd64 initramfs-tools
 
