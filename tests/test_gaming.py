@@ -76,6 +76,9 @@ class TestGamingPackages(unittest.TestCase):
         module=(INC/'usr/lib/calamares/modules/coffeeapps/main.py').read_text()
         self.assertIn('packagechooser_coffeeapps', module)
         self.assertIn('check_target_env_call(["apt-get", "update"])', module)
+        self.assertIn('_ensure_coffeeos_apt_components()', module)
+        for component in ('main', 'contrib', 'non-free', 'non-free-firmware'):
+            self.assertIn(component, module)
         self.assertIn('"lutris": ["lutris", "winetricks"]', module)
         self.assertIn('["/usr/local/sbin/coffee-gaming-setup", "--yes", "gamescope"]', module)
         self.assertIn('package != "gamescope"', module)
