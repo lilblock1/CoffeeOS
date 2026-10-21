@@ -36,12 +36,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate CoffeeOS Python and source tests
+      - name: Validate all CoffeeOS source and unit tests
         run: |
           set -Eeuo pipefail
-          python3 -m unittest discover -s tests -p 'test_desktop.py'
-          python3 -m unittest discover -s tests -p 'test_control_center.py'
-          python3 -m unittest discover -s tests -p 'test_updates.py'
+          bash scripts/validate.sh
 
       - name: Restore reusable CoffeeKernel cache
         id: coffeekernel-cache
@@ -140,7 +138,7 @@ jobs:
       - name: Prepare verification tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xorriso
+          sudo apt-get install -y --no-install-recommends xorriso squashfs-tools qemu-system-x86 ovmf
 
       - name: Build or reuse CoffeeKernel and build CoffeeOS ISO in Debian 13
         run: |
@@ -279,15 +277,27 @@ jobs:
           sha256sum -c dist/kernels/coffee/SHA256SUMS
           cat live-build/config/includes.chroot/usr/share/coffeeos/kernel-build-status.txt
 
-      - name: Verify ISO
+      - name: Verify complete ISO payload and boot structures
         run: |
           set -Eeuo pipefail
           iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
           test -n "$iso"
           test -s "$iso"
-          sha256sum -c "$iso.sha256"
+          bash scripts/verify-iso.sh "$iso"
           xorriso -indev "$iso" -report_el_torito as_mkisofs > dist/iso-boot-layout.txt
           ls -lh "$iso" "$iso.sha256"
+
+      - name: BIOS boot smoke test
+        run: |
+          set -Eeuo pipefail
+          iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
+          bash scripts/boot-smoke-test.sh --bios "$iso"
+
+      - name: UEFI boot smoke test
+        run: |
+          set -Eeuo pipefail
+          iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
+          bash scripts/boot-smoke-test.sh --uefi "$iso"
 
       - name: Upload CoffeeKernel ISO artifact
         uses: actions/upload-artifact@v4
