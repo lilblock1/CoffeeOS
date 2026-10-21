@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+command -v swaylock >/dev/null 2>&1 || { echo "swaylock is not installed" >&2; exit 3; }
+exec swaylock -f \
+  --color 140e0c \
+  --inside-color 271915ff \
+  --ring-color d89a5bff \
+  --line-color 00000000 \
+  --key-hl-color f2c28dff \
+  --text-color f8eee5ff \
+  --separator-color 00000000 \
+  --indicator-radius 90 \
+  --indicator-thickness 8

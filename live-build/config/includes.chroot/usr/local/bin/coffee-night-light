@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""CoffeeOS night-light state and lightweight scheduler."""
+from __future__ import annotations
+import argparse, json, os, subprocess, time
+from datetime import datetime
+from pathlib import Path
+
+def path(): return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'coffeeos'/'night-light.json'
+def read():
+    d={'enabled':False,'temperature':4200,'schedule':False,'start':'19:00','end':'07:00'}
+    try:
+        raw=json.loads(path().read_text())
+        if isinstance(raw,dict):
+            d.update({k:raw[k] for k in d if k in raw})
+    except (OSError,ValueError): pass
+    return d
+def write(d):
+    p=path(); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(d,indent=2)+'\n'); os.chmod(p,0o600)
+def active(d):
+    if not d.get('enabled'): return False
+    if not d.get('schedule'): return True
+    now=datetime.now().strftime('%H:%M'); start=d.get('start','19:00'); end=d.get('end','07:00')
+    return start<=now<end if start<end else (now>=start or now<end)
+def apply(d):
+    try:
+        if active(d):
+            temp=max(2500,min(6500,int(d.get('temperature',4200))))
+            subprocess.run(['gammastep','-O',str(temp)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,timeout=5)
+        else:
+            subprocess.run(['gammastep','-x'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,timeout=5)
+    except (OSError,subprocess.TimeoutExpired): pass
+def main():
+    ap=argparse.ArgumentParser(); sp=ap.add_subparsers(dest='cmd')
+    sp.add_parser('show'); sp.add_parser('apply')
+    s=sp.add_parser('set'); s.add_argument('--enabled',choices=('on','off')); s.add_argument('--temperature',type=int); s.add_argument('--schedule',choices=('on','off')); s.add_argument('--start'); s.add_argument('--end')
+    ap.add_argument('--daemon',action='store_true'); a=ap.parse_args()
+    if a.daemon:
+        while True: apply(read()); time.sleep(60)
+    d=read()
+    if a.cmd=='show' or a.cmd is None: print(json.dumps(d,sort_keys=True)); return 0
+    if a.cmd=='apply': apply(d); return 0
+    if a.enabled is not None: d['enabled']=a.enabled=='on'
+    if a.temperature is not None:
+        if not 2500<=a.temperature<=6500: raise SystemExit('temperature must be 2500..6500')
+        d['temperature']=a.temperature
+    if a.schedule is not None: d['schedule']=a.schedule=='on'
+    for key in ('start','end'):
+        value=getattr(a,key)
+        if value is not None:
+            try: datetime.strptime(value,'%H:%M')
+            except ValueError: raise SystemExit(f'{key} must be HH:MM')
+            d[key]=value
+    write(d); apply(d); print(json.dumps(d,sort_keys=True)); return 0
+if __name__=='__main__': raise SystemExit(main())

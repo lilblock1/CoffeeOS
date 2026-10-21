@@ -45,3 +45,12 @@ slurp
 # Coffee Control Center hardware settings
 wlr-randr
 pulseaudio-utils
+
+swaylock
+swayidle
+gammastep
+upower
+nftables
+smartmontools
+udiskie
+locales

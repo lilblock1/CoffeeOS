@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""CoffeeOS idle/lock manager."""
+from __future__ import annotations
+import argparse, json, os, signal, subprocess
+from pathlib import Path
+
+def cfg_path(): return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'coffeeos'/'power.json'
+def read():
+    data={'lock_minutes':10,'suspend_minutes':0,'lock_before_sleep':True}
+    try:
+        raw=json.loads(cfg_path().read_text())
+        if isinstance(raw,dict):
+            if isinstance(raw.get('lock_minutes'),int) and 0<=raw['lock_minutes']<=240: data['lock_minutes']=raw['lock_minutes']
+            if isinstance(raw.get('suspend_minutes'),int) and 0<=raw['suspend_minutes']<=480: data['suspend_minutes']=raw['suspend_minutes']
+            if isinstance(raw.get('lock_before_sleep'),bool): data['lock_before_sleep']=raw['lock_before_sleep']
+    except (OSError,ValueError,TypeError): pass
+    return data
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument('--replace',action='store_true'); a=ap.parse_args()
+    if a.replace: subprocess.run(['pkill','-x','swayidle'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+    c=read(); argv=['swayidle','-w']
+    if c['lock_minutes']>0: argv += ['timeout',str(c['lock_minutes']*60),'coffee-lock']
+    if c['suspend_minutes']>0:
+        argv += ['timeout',str(c['suspend_minutes']*60),'systemctl suspend']
+    if c['lock_before_sleep']: argv += ['before-sleep','coffee-lock']
+    if len(argv)==2: return 0
+    os.execvp(argv[0],argv)
+if __name__=='__main__': raise SystemExit(main())

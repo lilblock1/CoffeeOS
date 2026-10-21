@@ -6,12 +6,16 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk
 
 COMMANDS = {
+    'Lock': ['coffee-lock'],
+    'Suspend': ['systemctl', 'suspend'],
     'Log out': ['labwc', '--exit'],
     'Restart': ['systemctl', 'reboot'],
     'Shut down': ['systemctl', 'poweroff'],
 }
 
 def request(label):
+    if label == 'Lock':
+        subprocess.Popen(COMMANDS[label]); window.destroy(); return
     confirm = Gtk.MessageDialog(parent=window, flags=Gtk.DialogFlags.MODAL,
                                 message_type=Gtk.MessageType.QUESTION,
                                 buttons=Gtk.ButtonsType.YES_NO,
@@ -31,7 +35,7 @@ def request(label):
         error.destroy()
 
 window = Gtk.Window(title='CoffeeOS · Power')
-window.set_default_size(320, 150)
+window.set_default_size(340, 250)
 content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
 content.set_border_width(20)
 window.add(content)

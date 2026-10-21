@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""User-level CoffeeOS desktop settings and status helpers."""
+from __future__ import annotations
+import argparse, configparser, json, mimetypes, os, re, shutil, subprocess, tempfile
+from pathlib import Path
+import xml.etree.ElementTree as ET
+
+def ch(argv,timeout=8):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,check=False)
+        return p.returncode,p.stdout.strip()
+    except (OSError,subprocess.TimeoutExpired) as exc: return 127,str(exc)
+def cfg(): return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'coffeeos'
+def read_json(name,default):
+    try:
+        d=json.loads((cfg()/name).read_text()); return d if isinstance(d,dict) else default.copy()
+    except (OSError,ValueError): return default.copy()
+def write_json(name,data):
+    p=cfg()/name; p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(data,indent=2)+'\n'); os.chmod(p,0o600)
+def power_status():
+    batteries=[]
+    for b in sorted(Path('/sys/class/power_supply').glob('BAT*')):
+        def val(n,default=''):
+            try:return (b/n).read_text().strip()
+            except OSError:return default
+        batteries.append({'name':b.name,'status':val('status'),'capacity':int(val('capacity','0') or 0),'energy_full':val('energy_full'),'energy_full_design':val('energy_full_design'),'charge_full':val('charge_full'),'charge_full_design':val('charge_full_design')})
+    d=read_json('power.json',{'lock_minutes':10,'suspend_minutes':0,'lock_before_sleep':True})
+    print(json.dumps({'batteries':batteries,**d},indent=2))
+def power_set(lock,suspend,before):
+    if not 0<=lock<=240 or not 0<=suspend<=480: raise SystemExit('invalid idle timeout')
+    d={'lock_minutes':lock,'suspend_minutes':suspend,'lock_before_sleep':before}; write_json('power.json',d)
+    try: subprocess.Popen(['coffee-idle-manager','--replace'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    except OSError: pass
+def input_state():
+    d=read_json('input.json',{'pointer_speed':0.0,'natural_scroll':False,'tap':True,'repeat_rate':25,'repeat_delay':600,'layout':'us'}); print(json.dumps(d))
+def input_set(speed,natural,tap,rate,delay,layout):
+    if not -1<=speed<=1 or not 1<=rate<=100 or not 100<=delay<=2000 or not re.fullmatch(r'[A-Za-z0-9_-]{2,16}',layout): raise SystemExit('invalid input setting')
+    d={'pointer_speed':speed,'natural_scroll':natural,'tap':tap,'repeat_rate':rate,'repeat_delay':delay,'layout':layout}; write_json('input.json',d)
+    path=Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'labwc'/'rc.xml'; base=Path('/etc/xdg/labwc/rc.xml')
+    source=path if path.exists() else base
+    tree=ET.parse(source); root=tree.getroot()
+    lib=root.find('libinput')
+    if lib is None: lib=ET.SubElement(root,'libinput')
+    dev=lib.find("device[@category='default']")
+    if dev is None: dev=ET.SubElement(lib,'device',{'category':'default'})
+    for tag,value in [('pointerSpeed',str(speed)),('naturalScroll','yes' if natural else 'no'),('tap','yes' if tap else 'no')]:
+        el=dev.find(tag)
+        if el is None: el=ET.SubElement(dev,tag)
+        el.text=value
+    kb=root.find('keyboard')
+    if kb is None: kb=ET.SubElement(root,'keyboard')
+    for tag,value in [('repeatRate',str(rate)),('repeatDelay',str(delay))]:
+        el=kb.find(tag)
+        if el is None: el=ET.SubElement(kb,tag)
+        el.text=value
+    path.parent.mkdir(parents=True,exist_ok=True); ET.indent(tree,space=' '); tree.write(path,encoding='unicode',xml_declaration=True)
+    env=path.parent/'environment'; lines=[]
+    try: lines=env.read_text().splitlines()
+    except OSError:
+        try: lines=Path('/etc/xdg/labwc/environment').read_text().splitlines()
+        except OSError: pass
+    lines=[x for x in lines if not x.startswith('XKB_DEFAULT_LAYOUT=')]; lines.append('XKB_DEFAULT_LAYOUT='+layout); env.write_text('\n'.join(lines)+'\n')
+    ch(['labwc','--reconfigure'],3); print(json.dumps(d))
+def storage():
+    rc,out=ch(['lsblk','-J','-o','NAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL'],5); _,df=ch(['df','-h','/'],5)
+    cache=0
+    for p in (Path.home()/'.cache').glob('**/*'):
+        try:
+            if p.is_file(): cache+=p.stat().st_size
+        except OSError: pass
+    print(json.dumps({'lsblk':json.loads(out) if rc==0 else {},'root_df':df,'user_cache_bytes':cache}))
+def clean_user():
+    removed=0
+    for target in (Path.home()/'.cache/thumbnails',Path.home()/'.cache/fontconfig'):
+        if target.exists():
+            for p in target.rglob('*'):
+                try:
+                    if p.is_file(): removed+=p.stat().st_size
+                except OSError: pass
+            shutil.rmtree(target,ignore_errors=True)
+    print(f'Freed approximately {removed} bytes from safe user caches.')
+def notifications_show(): print(json.dumps(read_json('notifications.json',{'dnd':False,'timeout_ms':6000})))
+def notifications_set(dnd,timeout):
+    if not 1000<=timeout<=60000: raise SystemExit('timeout must be 1000..60000 ms')
+    d={'dnd':dnd,'timeout_ms':timeout}; write_json('notifications.json',d); notifications_apply(d)
+def notifications_apply(d=None):
+    d=d or read_json('notifications.json',{'dnd':False,'timeout_ms':6000})
+    p=Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'mako'/'config'
+    try: text=p.read_text()
+    except OSError: return
+    if re.search(r'^default-timeout=',text,re.M): text=re.sub(r'^default-timeout=.*$',f"default-timeout={int(d['timeout_ms'])}",text,flags=re.M)
+    else: text=f"default-timeout={int(d['timeout_ms'])}\n"+text
+    p.write_text(text)
+    ch(['makoctl','reload'],3)
+    ch(['makoctl','mode','-a' if d.get('dnd') else '-r','do-not-disturb'],3)
+def startup_list():
+    user=Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'autostart'; system=Path('/etc/xdg/autostart'); names={}
+    for base,kind in ((system,'system'),(user,'user')):
+        if not base.exists(): continue
+        for p in base.glob('*.desktop'):
+            cp=configparser.ConfigParser(interpolation=None,strict=False); cp.read(p)
+            if not cp.has_section('Desktop Entry'): continue
+            sec=cp['Desktop Entry']; names[p.name]={'id':p.name,'name':sec.get('Name',p.stem),'enabled':sec.getboolean('Hidden',fallback=False)==False,'source':kind}
+    # User override wins, including Hidden=true.
+    for p in user.glob('*.desktop') if user.exists() else []:
+        cp=configparser.ConfigParser(interpolation=None,strict=False); cp.read(p)
+        if cp.has_section('Desktop Entry') and p.name in names: names[p.name]['enabled']=not cp['Desktop Entry'].getboolean('Hidden',fallback=False); names[p.name]['source']='user'
+    print(json.dumps(sorted(names.values(),key=lambda x:x['name'].lower())))
+def startup_toggle(desktop_id,enable):
+    if '/' in desktop_id or not desktop_id.endswith('.desktop'): raise SystemExit('invalid desktop id')
+    user=Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'autostart'; user.mkdir(parents=True,exist_ok=True); dst=user/desktop_id; src=Path('/etc/xdg/autostart')/desktop_id
+    if enable:
+        if dst.exists():
+            cp=configparser.ConfigParser(interpolation=None,strict=False); cp.read(dst)
+            if cp.has_section('Desktop Entry') and cp['Desktop Entry'].getboolean('Hidden',fallback=False) and src.exists(): dst.unlink()
+            elif cp.has_section('Desktop Entry'): cp['Desktop Entry']['Hidden']='false'; open(dst,'w').write(_config_text(cp))
+        return
+    cp=configparser.ConfigParser(interpolation=None,strict=False)
+    if dst.exists(): cp.read(dst)
+    elif src.exists(): cp.read(src)
+    else: raise SystemExit('unknown startup item')
+    if not cp.has_section('Desktop Entry'): cp.add_section('Desktop Entry')
+    cp['Desktop Entry']['Hidden']='true'; dst.write_text(_config_text(cp))
+def _config_text(cp):
+    import io; s=io.StringIO(); cp.write(s,space_around_delimiters=False); return s.getvalue()
+def app_catalog():
+    cats={'browser':[],'text':[],'image':[]}
+    for base in (Path('/usr/share/applications'),Path.home()/'.local/share/applications'):
+        if not base.exists(): continue
+        for p in base.glob('*.desktop'):
+            cp=configparser.ConfigParser(interpolation=None,strict=False)
+            try: cp.read(p)
+            except Exception: continue
+            if not cp.has_section('Desktop Entry'): continue
+            sec=cp['Desktop Entry']
+            if sec.getboolean('NoDisplay',fallback=False): continue
+            name=sec.get('Name',p.stem); categories=sec.get('Categories','')
+            item={'id':p.name,'name':name}
+            if 'WebBrowser' in categories: cats['browser'].append(item)
+            if 'TextEditor' in categories or 'Office' in categories: cats['text'].append(item)
+            if 'Graphics' in categories or 'Viewer' in categories: cats['image'].append(item)
+    for k in cats: cats[k]=sorted({x['id']:x for x in cats[k]}.values(),key=lambda x:x['name'].lower())
+    def current(mime):
+        rc,out=ch(['xdg-mime','query','default',mime],3); return out if rc==0 else ''
+    print(json.dumps({'apps':cats,'current':{'browser':current('x-scheme-handler/http'),'text':current('text/plain'),'image':current('image/png')}}))
+def default_set(kind,desktop):
+    if '/' in desktop or not desktop.endswith('.desktop'): raise SystemExit('invalid desktop id')
+    if not any((base/desktop).exists() for base in (Path('/usr/share/applications'),Path.home()/'.local/share/applications')): raise SystemExit('unknown application')
+    mimes={'browser':['x-scheme-handler/http','x-scheme-handler/https','text/html'],'text':['text/plain'],'image':['image/png','image/jpeg']}[kind]
+    for mime in mimes:
+        rc,out=ch(['xdg-mime','default',desktop,mime],4)
+        if rc: raise SystemExit(out)
+def account():
+    import pwd
+    u=pwd.getpwuid(os.getuid()); print(json.dumps({'username':u.pw_name,'display_name':u.pw_gecos.split(',')[0] or u.pw_name,'home':u.pw_dir,'avatar':str(Path.home()/'.face') if (Path.home()/'.face').exists() else ''}))
+def avatar(src):
+    p=Path(src).resolve()
+    if not p.is_file() or p.stat().st_size>10_000_000: raise SystemExit('invalid avatar file')
+    if p.suffix.lower() not in ('.png','.jpg','.jpeg','.webp'): raise SystemExit('avatar must be PNG/JPEG/WebP')
+    shutil.copyfile(p,Path.home()/'.face'); os.chmod(Path.home()/'.face',0o600)
+def controllers():
+    try: text=Path('/proc/bus/input/devices').read_text(errors='replace')
+    except OSError: text=''
+    items=[]
+    for block in text.split('\n\n'):
+        name=re.search(r'N: Name="([^"]+)"',block); handlers=re.search(r'H: Handlers=(.+)',block)
+        if name and handlers and re.search(r'\b(js\d+|event\d+)\b',handlers.group(1)) and re.search(r'gamepad|controller|joystick|xbox|playstation|dualshock|dualsense|switch',name.group(1),re.I):
+            items.append({'name':name.group(1),'handlers':handlers.group(1).split()})
+    print(json.dumps(items))
+def mangohud(preset):
+    presets={'off':'','fps':'fps_only','compact':'fps,frametime,cpu_stats,gpu_stats,ram,vram','full':'full'}
+    if preset not in presets: raise SystemExit('invalid preset')
+    p=Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'MangoHud'/'MangoHud.conf'; p.parent.mkdir(parents=True,exist_ok=True)
+    value=presets[preset]
+    if preset=='off': p.write_text('no_display\n')
+    elif preset=='fps': p.write_text('fps_only\n')
+    elif preset=='compact': p.write_text('fps\nframetime\ncpu_stats\ngpu_stats\nram\nvram\n')
+    else: p.write_text('fps\nframetime\nframe_timing\ncpu_stats\ncpu_temp\ngpu_stats\ngpu_temp\nram\nvram\nwine\nengine_version\n')
+    os.chmod(p,0o600); print(preset)
+def flatpak_user():
+    rc,out=ch(['flatpak','remote-add','--user','--if-not-exists','flathub','https://flathub.org/repo/flathub.flatpakrepo'],20)
+    if rc: raise SystemExit(out)
+    print('Flathub enabled for this user.')
+def main():
+    ap=argparse.ArgumentParser(); sp=ap.add_subparsers(dest='cmd',required=True)
+    sp.add_parser('power-status'); p=sp.add_parser('power-set'); p.add_argument('--lock',type=int,required=True); p.add_argument('--suspend',type=int,required=True); p.add_argument('--before-sleep',choices=('on','off'),required=True)
+    sp.add_parser('input-show'); p=sp.add_parser('input-set'); p.add_argument('--pointer-speed',type=float,required=True); p.add_argument('--natural-scroll',choices=('on','off'),required=True); p.add_argument('--tap',choices=('on','off'),required=True); p.add_argument('--repeat-rate',type=int,required=True); p.add_argument('--repeat-delay',type=int,required=True); p.add_argument('--layout',required=True)
+    sp.add_parser('storage'); sp.add_parser('clean-user'); sp.add_parser('notifications-show'); p=sp.add_parser('notifications-set'); p.add_argument('--dnd',choices=('on','off'),required=True); p.add_argument('--timeout',type=int,required=True); sp.add_parser('notifications-apply')
+    sp.add_parser('startup-list'); p=sp.add_parser('startup-toggle'); p.add_argument('desktop_id'); p.add_argument('state',choices=('on','off'))
+    sp.add_parser('defaults'); p=sp.add_parser('default-set'); p.add_argument('kind',choices=('browser','text','image')); p.add_argument('desktop_id')
+    sp.add_parser('account'); p=sp.add_parser('avatar'); p.add_argument('file'); sp.add_parser('controllers'); p=sp.add_parser('mangohud'); p.add_argument('preset',choices=('off','fps','compact','full')); sp.add_parser('flatpak-enable-flathub')
+    a=ap.parse_args()
+    if a.cmd=='power-status': power_status()
+    elif a.cmd=='power-set': power_set(a.lock,a.suspend,a.before_sleep=='on')
+    elif a.cmd=='input-show': input_state()
+    elif a.cmd=='input-set': input_set(a.pointer_speed,a.natural_scroll=='on',a.tap=='on',a.repeat_rate,a.repeat_delay,a.layout)
+    elif a.cmd=='storage': storage()
+    elif a.cmd=='clean-user': clean_user()
+    elif a.cmd=='notifications-show': notifications_show()
+    elif a.cmd=='notifications-set': notifications_set(a.dnd=='on',a.timeout)
+    elif a.cmd=='notifications-apply': notifications_apply()
+    elif a.cmd=='startup-list': startup_list()
+    elif a.cmd=='startup-toggle': startup_toggle(a.desktop_id,a.state=='on')
+    elif a.cmd=='defaults': app_catalog()
+    elif a.cmd=='default-set': default_set(a.kind,a.desktop_id)
+    elif a.cmd=='account': account()
+    elif a.cmd=='avatar': avatar(a.file)
+    elif a.cmd=='controllers': controllers()
+    elif a.cmd=='mangohud': mangohud(a.preset)
+    elif a.cmd=='flatpak-enable-flathub': flatpak_user()
+if __name__=='__main__': main()

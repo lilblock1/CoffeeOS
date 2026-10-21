@@ -21,6 +21,7 @@
     "battery",
     "tray",
     "custom/updates",
+    "custom/gaming",
     "custom/controlcenter",
     "custom/power"
   ],
@@ -60,7 +61,8 @@
   "pulseaudio": {
     "format": "Vol  {volume}%",
     "format-muted": "Muted",
-    "on-click": "pavucontrol",
+    "on-click": "coffee-control-center --page audio",
+    "on-click-right": "pavucontrol",
     "scroll-step": 5
   },
   "battery": {
@@ -68,10 +70,18 @@
     "format-charging": "Charging  {capacity}%",
     "format-full": "",
     "format-not-present": "",
-    "interval": 30
+    "interval": 30,
+    "on-click": "coffee-control-center --page power"
   },
   "tray": {
     "spacing": 8
+  },
+  "custom/gaming": {
+    "exec": "coffee-gaming-indicator",
+    "return-type": "json",
+    "interval": 2,
+    "tooltip": true,
+    "on-click": "coffee-control-center --page gaming"
   },
   "custom/controlcenter": {
     "format": "⚙",

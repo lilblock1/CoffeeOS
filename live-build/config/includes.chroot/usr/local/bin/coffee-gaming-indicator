@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+import json, os
+from pathlib import Path
+runtime=os.environ.get('XDG_RUNTIME_DIR') or f'/tmp/coffeeos-gaming-{os.getuid()}'
+state=Path(runtime)/'coffeeos-gaming/state'
+active=False
+try:
+    for line in state.read_text().splitlines():
+        if line.startswith('COUNT=') and int(line.split('=',1)[1])>0: active=True
+except (OSError,ValueError): pass
+print(json.dumps({'text':'🎮' if active else '','tooltip':'CoffeeOS Gaming Mode active' if active else 'Gaming Mode idle','class':'active' if active else 'inactive'}))
