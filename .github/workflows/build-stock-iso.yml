@@ -5,14 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/build-stock-iso.yml
-      - tests/**
-      - scripts/validate.sh
-      - scripts/boot-smoke-test.sh
-      - scripts/verify-*.sh
-      - scripts/build-iso.sh
-      - scripts/build-coffeeos-system-package.sh
-      - live-build/**
+      - .github/coffeeos-stock-iso-request
 
 permissions:
   contents: write
