@@ -1,0 +1,23 @@
+# CoffeeOS-Espresso-Noir: CoffeeOS native labwc theme
+border.width: 1
+padding.height: 7
+titlebar.height: 30
+window.active.border.color: #d89a5b
+window.inactive.border.color: #62402f
+window.active.title.bg.color: #271915
+window.inactive.title.bg.color: #140e0c
+window.active.label.text.color: #f8eee5
+window.inactive.label.text.color: #c0aa9a
+window.active.button.unpressed.image.color: #f2c28d
+window.inactive.button.unpressed.image.color: #c0aa9a
+menu.items.bg.color: #140e0c
+menu.items.text.color: #f8eee5
+menu.items.active.bg.color: #5b3525
+menu.items.active.text.color: #f2c28d
+menu.separator.color: #62402f
+osd.bg.color: #271915
+osd.label.text.color: #f8eee5
+window.active.shadow.size: 14
+window.inactive.shadow.size: 8
+window.active.shadow.color: #00000090
+window.inactive.shadow.color: #00000070

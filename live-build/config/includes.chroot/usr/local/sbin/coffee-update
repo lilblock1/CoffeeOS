@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""CoffeeOS in-place updater.
+
+Debian packages are updated with APT. CoffeeOS-specific packages come from an
+optional signed CoffeeOS APT feed configured by the owner/user. The updater
+never enables an unsigned remote repository.
+"""
+from __future__ import annotations
+import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urlparse
+
+CONF=Path('/etc/coffeeos/update.conf')
+SOURCE=Path('/etc/apt/sources.list.d/coffeeos-updates.sources')
+KEYRING=Path('/usr/share/keyrings/coffeeos-update.gpg')
+STATE=Path('/var/lib/coffeeos/update-status.json')
+RELEASE=Path('/usr/share/coffeeos/release')
+
+
+def run(argv, *, check=False, capture=False, env=None):
+    kw={'text':True, 'check':check, 'env':env}
+    if capture: kw.update(stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return subprocess.run(argv, **kw)
+
+def root_required():
+    if os.geteuid()!=0:
+        raise SystemExit('Root is required for this action. Coffee Control Center uses polkit.')
+
+def is_live():
+    try: return 'boot=live' in Path('/proc/cmdline').read_text()
+    except OSError: return False
+
+def installed_only():
+    if is_live(): raise SystemExit('Updates are disabled in the disposable live session. Install CoffeeOS first.')
+
+def parse_shell_kv(path):
+    out={}
+    try: lines=path.read_text().splitlines()
+    except OSError: return out
+    for raw in lines:
+        line=raw.strip()
+        if not line or line.startswith('#') or '=' not in line: continue
+        k,v=line.split('=',1); out[k.strip()]=v.strip().strip('"\'')
+    return out
+
+def current_version():
+    rel=parse_shell_kv(RELEASE)
+    if rel.get('COFFEEOS_VERSION'): return rel['COFFEEOS_VERSION']
+    p=run(['dpkg-query','-W','-f=${Version}','coffeeos-system'],capture=True)
+    return p.stdout.strip() if p.returncode==0 else 'unknown'
+
+def feed_info():
+    c=parse_shell_kv(CONF)
+    return c.get('COFFEEOS_FEED_URL',''), c.get('COFFEEOS_FEED_SUITE','stable') or 'stable'
+
+def upgradable():
+    p=run(['apt','list','--upgradable'],capture=True)
+    lines=[]
+    for line in p.stdout.splitlines():
+        line=line.strip()
+        if not line or line.startswith('Listing...'): continue
+        lines.append(line)
+    return lines
+
+def coffee_lines(lines):
+    keys=('coffeeos-system','linux-image-','linux-headers-')
+    return [x for x in lines if x.startswith('coffeeos-system/') or ('-coffee' in x) or '+coffee' in x]
+
+def reboot_needed():
+    if Path('/var/run/reboot-required').exists(): return True
+    running=os.uname().release
+    try:
+        kernels=sorted(Path('/boot').glob('vmlinuz-*-coffee'), key=lambda p:p.stat().st_mtime, reverse=True)
+        if kernels:
+            newest=kernels[0].name.removeprefix('vmlinuz-')
+            if newest != running: return True
+        running_image=Path('/boot') / ('vmlinuz-'+running)
+        if running_image.exists():
+            uptime=float(Path('/proc/uptime').read_text().split()[0])
+            boot_time=time.time()-uptime
+            # Same uname release but newer CoffeeKernel package: the file was replaced after this boot.
+            if running_image.stat().st_mtime > boot_time + 30: return True
+    except (OSError, ValueError): pass
+    return False
+
+def write_state(lines, *, error=''):
+    STATE.parent.mkdir(parents=True,exist_ok=True)
+    data={
+      'checked_at':datetime.now(timezone.utc).isoformat(),
+      'version':current_version(),
+      'upgrade_count':len(lines),
+      'coffeeos_upgrade_count':len(coffee_lines(lines)),
+      'reboot_required':reboot_needed(),
+      'error':error,
+    }
+    tmp=STATE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(data,indent=2)+'\n')
+    os.chmod(tmp,0o644); tmp.replace(STATE)
+    return data
+
+def read_state():
+    try: return json.loads(STATE.read_text())
+    except Exception: return {}
+
+def status(as_json=False):
+    url,suite=feed_info(); data=read_state()
+    result={
+      'version':current_version(), 'feed_url':url, 'feed_suite':suite,
+      'feed_configured':bool(url and SOURCE.exists() and KEYRING.exists()),
+      'last_check':data.get('checked_at','never'),
+      'upgrade_count':data.get('upgrade_count',0),
+      'coffeeos_upgrade_count':data.get('coffeeos_upgrade_count',0),
+      'reboot_required':bool(data.get('reboot_required',reboot_needed())),
+      'last_error':data.get('error',''),
+    }
+    if as_json: print(json.dumps(result,sort_keys=True)); return
+    print(f"CoffeeOS version: {result['version']}")
+    print(f"CoffeeOS feed: {url or 'not configured (Debian updates only)'}")
+    print(f"Channel: {suite}")
+    print(f"Last check: {result['last_check']}")
+    print(f"Cached upgrades: {result['upgrade_count']} ({result['coffeeos_upgrade_count']} CoffeeOS)")
+    print(f"Reboot required: {'yes' if result['reboot_required'] else 'no'}")
+    if result['last_error']: print(f"Last error: {result['last_error']}")
+
+def do_check(background=False):
+    root_required(); installed_only()
+    p=run(['apt-get','update'])
+    if p.returncode:
+        write_state([],error=f'apt-get update failed with exit code {p.returncode}')
+        raise SystemExit(p.returncode)
+    lines=upgradable(); data=write_state(lines)
+    if not background:
+        print(f"Available upgrades: {len(lines)} ({data['coffeeos_upgrade_count']} CoffeeOS)")
+        for line in lines: print(line)
+
+def do_upgrade():
+    root_required(); installed_only()
+    env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
+    run(['apt-get','update'],check=True,env=env)
+    # dist-upgrade is required so new CoffeeKernel dependency sets can move forward.
+    run(['apt-get','-y','dist-upgrade'],check=True,env=env)
+    lines=upgradable(); data=write_state(lines)
+    print('CoffeeOS/Debian update completed.')
+    if data['reboot_required']:
+        print('REBOOT_REQUIRED=1')
+        print('A new kernel or reboot-sensitive update is installed. Reboot when convenient.')
+    else:
+        print('REBOOT_REQUIRED=0')
+        print('No reboot is currently required.')
+
+def do_cleanup():
+    root_required(); installed_only()
+    env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
+    run(['apt-get','-y','autoremove'],check=True,env=env)
+    run(['apt-get','clean'],check=True,env=env)
+
+def normalize_url(value):
+    p=urlparse(value)
+    if p.scheme not in ('https','file'):
+        raise SystemExit('CoffeeOS update feeds must use https:// or file:// URLs.')
+    if p.scheme=='https' and not p.netloc: raise SystemExit('Invalid HTTPS update feed URL.')
+    if p.scheme=='file' and not p.path.startswith('/'): raise SystemExit('file:// feed must use an absolute path.')
+    return value.rstrip('/')
+
+def configure_feed(url,suite,keyfile):
+    root_required(); installed_only(); url=normalize_url(url)
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*',suite): raise SystemExit('Invalid feed suite/channel name.')
+    key=Path(keyfile)
+    if not key.is_file() or key.stat().st_size>2_000_000: raise SystemExit('Signing key file is missing or unreasonable in size.')
+    KEYRING.parent.mkdir(parents=True,exist_ok=True)
+    with tempfile.TemporaryDirectory() as td:
+        tdpath=Path(td); home=tdpath/'gnupg'; home.mkdir(mode=0o700)
+        out=tdpath/'key.gpg'
+        # Accept either ASCII-armored or binary OpenPGP public keys, but never a secret key.
+        packets=run(['gpg','--batch','--no-options','--homedir',str(home),'--list-packets',str(key)],capture=True)
+        if packets.returncode or ':public key packet:' not in packets.stdout:
+            raise SystemExit('The selected file is not a readable OpenPGP public key.')
+        if ':secret key packet:' in packets.stdout or ':secret sub key packet:' in packets.stdout:
+            raise SystemExit('Refusing to install a secret signing key on client systems.')
+        if key.read_bytes().startswith(b'-----BEGIN PGP PUBLIC KEY BLOCK-----'):
+            run(['gpg','--batch','--no-options','--homedir',str(home),'--yes','--dearmor','--output',str(out),str(key)],check=True)
+        else: shutil.copyfile(key,out)
+        os.chmod(out,0o644); shutil.copyfile(out,KEYRING); os.chmod(KEYRING,0o644)
+    SOURCE.write_text(f'''Types: deb\nURIs: {url}\nSuites: {suite}\nComponents: main\nSigned-By: {KEYRING}\n''')
+    CONF.parent.mkdir(parents=True,exist_ok=True)
+    CONF.write_text(f'COFFEEOS_FEED_URL={url}\nCOFFEEOS_FEED_SUITE={suite}\n')
+    print(f'CoffeeOS update feed configured: {url} ({suite})')
+    print('Run: sudo coffee-update check')
+
+def clear_feed():
+    root_required(); installed_only()
+    SOURCE.unlink(missing_ok=True); KEYRING.unlink(missing_ok=True)
+    CONF.parent.mkdir(parents=True,exist_ok=True)
+    CONF.write_text('COFFEEOS_FEED_URL=\nCOFFEEOS_FEED_SUITE=stable\n')
+    print('CoffeeOS-specific feed removed. Debian Stable updates remain enabled.')
+
+def main():
+    ap=argparse.ArgumentParser(prog='coffee-update')
+    sub=ap.add_subparsers(dest='cmd',required=True)
+    p=sub.add_parser('status'); p.add_argument('--json',action='store_true')
+    sub.add_parser('list')
+    p=sub.add_parser('check'); p.add_argument('--background',action='store_true')
+    sub.add_parser('upgrade'); sub.add_parser('cleanup')
+    p=sub.add_parser('set-feed'); p.add_argument('url'); p.add_argument('suite'); p.add_argument('public_key')
+    sub.add_parser('clear-feed')
+    a=ap.parse_args()
+    if a.cmd=='status': status(a.json)
+    elif a.cmd=='list': print('\n'.join(upgradable()))
+    elif a.cmd=='check': do_check(a.background)
+    elif a.cmd=='upgrade': do_upgrade()
+    elif a.cmd=='cleanup': do_cleanup()
+    elif a.cmd=='set-feed': configure_feed(a.url,a.suite,a.public_key)
+    elif a.cmd=='clear-feed': clear_feed()
+if __name__=='__main__': main()

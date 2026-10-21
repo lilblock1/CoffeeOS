@@ -1,0 +1,25 @@
+#!/bin/sh
+# CoffeeOS theme-aware wallpaper loader. A user-selected wallpaper overrides the
+# active theme; selecting another complete CoffeeOS theme clears that override.
+set -eu
+config_home=${XDG_CONFIG_HOME:-"$HOME/.config"}
+theme_file="$config_home/coffeeos/theme"
+custom_file="$config_home/coffeeos/wallpaper"
+theme=espresso-noir
+if [ -f "$theme_file" ]; then
+    IFS= read -r candidate < "$theme_file" || true
+    case "$candidate" in
+        espresso-noir|latte-cream|caramel-sunrise|mocha-night|hazelnut-mist|macchiato-glow) theme=$candidate ;;
+        espresso) theme=espresso-noir ;;
+        latte) theme=latte-cream ;;
+    esac
+fi
+wallpaper="/usr/share/backgrounds/coffeeos/$theme.png"
+[ -f "$wallpaper" ] || wallpaper=/usr/share/backgrounds/coffeeos/espresso-noir.svg
+if [ -f "$custom_file" ]; then
+    IFS= read -r candidate < "$custom_file" || true
+    case "$candidate" in
+        /*) if [ -f "$candidate" ]; then wallpaper=$candidate; fi ;;
+    esac
+fi
+exec swaybg -m fill -i "$wallpaper"

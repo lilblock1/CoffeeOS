@@ -1,0 +1,30 @@
+/* GTK3 gtkgreet-specific CSS. Authentication is still handled by greetd. */
+window {
+    background-color: #1a1110;
+    background-image: url("file:///usr/share/backgrounds/coffeeos/espresso-noir.svg");
+    background-size: cover;
+    background-position: center;
+    color: #f6eadc;
+    font-family: "Cantarell", sans-serif;
+}
+box#body {
+    background-color: rgba(32, 21, 19, 0.93);
+    padding: 38px;
+    border: 1px solid #8b6245;
+    border-radius: 18px;
+}
+entry {
+    background-color: #382722;
+    color: #fff1e4;
+    border-radius: 9px;
+    border: 1px solid #805a40;
+    min-height: 33px;
+}
+button {
+    background-image: none;
+    background-color: #ad764a;
+    color: #1b1110;
+    border-radius: 9px;
+    min-height: 33px;
+    font-weight: bold;
+}

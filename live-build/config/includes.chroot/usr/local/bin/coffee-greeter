@@ -1,0 +1,12 @@
+#!/bin/sh
+# CoffeeOS graphical greeter compatibility wrapper.
+# The login screen does not need GPU acceleration, so Pixman avoids EGL/DRI
+# failures in VMware, VirtualBox, QEMU, and older/unsupported GPUs.
+set -eu
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=CoffeeOS-Greeter
+export LIBSEAT_BACKEND=seatd
+export WLR_RENDERER=pixman
+export WLR_RENDERER_ALLOW_SOFTWARE=1
+export WLR_NO_HARDWARE_CURSORS=1
+exec cage -s -- gtkgreet -s /etc/greetd/coffee.css -c 'coffee-session'

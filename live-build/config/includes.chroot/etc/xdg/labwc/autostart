@@ -1,0 +1,12 @@
+#!/bin/sh
+# Coffee Desktop autostart. Gaming Session intentionally skips the panel and
+# notification daemon to reduce background work while keeping network/polkit.
+dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE 2>/dev/null || true
+coffee-appearance refresh >/dev/null 2>&1 || true
+if [ "${COFFEE_GAMING_SESSION:-0}" != 1 ]; then
+  coffee-wallpaper &
+  waybar &
+  mako &
+fi
+nm-applet --indicator &
+lxpolkit &

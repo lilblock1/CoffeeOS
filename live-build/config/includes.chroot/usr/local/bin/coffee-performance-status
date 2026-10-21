@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+printf '%s\n' 'CoffeeOS Performance Engine'
+printf '%s\n' '---------------------------'
+if command -v coffee-hardware-info >/dev/null 2>&1; then coffee-hardware-info; fi
+printf '\nPerformance daemon:\n'
+if [ -r /run/coffeeos/performance-daemon.json ]; then cat /run/coffeeos/performance-daemon.json; else echo 'not running / no state yet'; fi
+printf '\nMemory tuning:\n'
+if [ -r /run/coffeeos/memory-profile.json ]; then cat /run/coffeeos/memory-profile.json; else echo 'not applied yet'; fi
+printf '\nScheduler:\n'
+coffee-scheduler status 2>/dev/null || true

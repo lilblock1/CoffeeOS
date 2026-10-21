@@ -1,0 +1,12 @@
+#!/bin/sh
+# Minimal gaming-oriented login session. Prefer Gamescope+Steam when installed;
+# otherwise fall back to Coffee Desktop with nonessential shell components off.
+set -eu
+export COFFEE_GAMING_SESSION=1
+export XDG_SESSION_DESKTOP=coffee-gaming
+export XDG_CURRENT_DESKTOP=gamescope:CoffeeOS
+if command -v gamescope >/dev/null 2>&1 && command -v steam >/dev/null 2>&1; then
+  exec gamescope -e -f -- steam -gamepadui
+fi
+export XDG_CURRENT_DESKTOP=labwc
+exec coffee-session

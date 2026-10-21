@@ -1,0 +1,6 @@
+---
+type: job
+name: coffeeapps
+interface: python
+script: main.py
+weight: 8

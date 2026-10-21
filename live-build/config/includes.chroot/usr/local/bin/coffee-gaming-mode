@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# Coffee Gaming Mode: temporary, reversible user-session tuning around one game.
+# It deliberately avoids overclocking, service killing, swap changes, and
+# security mitigation changes. GameMode handles supported CPU/I/O tuning and
+# restores it when the game exits.
+set -u
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  coffee-gaming-mode [--game-id ID] [--hud|--no-hud] [--gamescope|--no-gamescope] [--no-scope] -- <game-command> [arguments...]
+  coffee-gaming-mode --status
+
+Steam launch option examples:
+  coffee-gaming-mode -- %command%
+  coffee-gaming-mode --hud -- %command%
+  coffee-gaming-mode --hud --gamescope -- %command%
+USAGE
+}
+
+HUD=-1
+GAMESCOPE=-1
+GAME_ID=${SteamAppId:-${SteamGameId:-}}
+USE_SCOPE=1
+# Per-user defaults are JSON and are parsed as data, never sourced as shell.
+if command -v coffee-gaming-preferences >/dev/null 2>&1; then
+  defaults=$(coffee-gaming-preferences show 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(bool(d.get("hud"))), int(bool(d.get("gamescope"))))' 2>/dev/null || echo '0 0')
+else
+  defaults='0 0'
+fi
+read -r DEFAULT_HUD DEFAULT_GAMESCOPE <<<"$defaults"
+if [[ ${1:-} == --status ]]; then
+  runtime=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}/coffeeos-gaming-${UID}}
+  state="$runtime/coffeeos-gaming/state"
+  if [[ -r $state ]]; then cat "$state"; else echo 'inactive'; fi
+  exit 0
+fi
+while (( $# )); do
+  case "$1" in
+    --hud) HUD=1; shift ;;
+    --no-hud) HUD=0; shift ;;
+    --gamescope) GAMESCOPE=1; shift ;;
+    --no-gamescope) GAMESCOPE=0; shift ;;
+    --game-id) GAME_ID=${2:?missing game id}; shift 2 ;;
+    --no-scope) USE_SCOPE=0; shift ;;
+    --) shift; break ;;
+    -h|--help) usage; exit 0 ;;
+    *) break ;;
+  esac
+done
+if (( $# == 0 )); then usage; exit 2; fi
+# Steam exports SteamAppId/SteamGameId for launched titles. Per-game choices
+# override global defaults without requiring a separate launcher.
+if [[ -n $GAME_ID ]] && command -v coffee-gaming-preferences >/dev/null 2>&1; then
+  per_game=$(coffee-gaming-preferences game-show "$GAME_ID" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(bool(d.get("hud"))), int(bool(d.get("gamescope"))))' 2>/dev/null || true)
+  if [[ -n $per_game ]]; then read -r DEFAULT_HUD DEFAULT_GAMESCOPE <<<"$per_game"; fi
+fi
+(( HUD < 0 )) && HUD=$DEFAULT_HUD
+(( GAMESCOPE < 0 )) && GAMESCOPE=$DEFAULT_GAMESCOPE
+
+runtime=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}/coffeeos-gaming-${UID}}
+state_dir="$runtime/coffeeos-gaming"
+state_file="$state_dir/state"
+lock_file="$state_dir/lock"
+umask 077
+mkdir -p "$state_dir" || exit 1
+
+# Avoid unsafe state reuse in a shared fallback directory.
+if [[ $(stat -c %u "$state_dir" 2>/dev/null || printf '%s' "$UID") != "$UID" ]]; then
+  echo 'coffee-gaming-mode: runtime state directory is not owned by this user' >&2
+  exit 1
+fi
+
+enter_mode() {
+  exec 9>"$lock_file"
+  flock 9
+  local count=0 effects=unknown
+  if [[ -r $state_file ]]; then
+    # shellcheck disable=SC1090
+    . "$state_file" 2>/dev/null || true
+    count=${COUNT:-0}; effects=${EFFECTS_BEFORE:-unknown}
+  fi
+  if ! [[ $count =~ ^[0-9]+$ ]]; then count=0; fi
+  if (( count == 0 )); then
+    if command -v coffee-appearance >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+      effects=$(coffee-appearance show 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print("on" if d.get("effects", True) else "off")' 2>/dev/null || echo unknown)
+      coffee-appearance effects off >/dev/null 2>&1 || true
+    fi
+    if command -v makoctl >/dev/null 2>&1; then
+      makoctl mode -a gaming >/dev/null 2>&1 || true
+    fi
+  fi
+  count=$((count + 1))
+  printf 'COUNT=%s\nEFFECTS_BEFORE=%q\n' "$count" "$effects" > "$state_file"
+  chmod 600 "$state_file" 2>/dev/null || true
+  flock -u 9
+}
+
+leave_mode() {
+  exec 9>"$lock_file"
+  flock 9
+  local count=1 effects=unknown
+  if [[ -r $state_file ]]; then
+    # shellcheck disable=SC1090
+    . "$state_file" 2>/dev/null || true
+    count=${COUNT:-1}; effects=${EFFECTS_BEFORE:-unknown}
+  fi
+  if ! [[ $count =~ ^[0-9]+$ ]]; then count=1; fi
+  if (( count > 1 )); then
+    count=$((count - 1))
+    printf 'COUNT=%s\nEFFECTS_BEFORE=%q\n' "$count" "$effects" > "$state_file"
+  else
+    rm -f -- "$state_file"
+    if command -v makoctl >/dev/null 2>&1; then
+      makoctl mode -r gaming >/dev/null 2>&1 || true
+    fi
+    if command -v coffee-appearance >/dev/null 2>&1; then
+      case "$effects" in
+        on) coffee-appearance effects on >/dev/null 2>&1 || true ;;
+        off) coffee-appearance effects off >/dev/null 2>&1 || true ;;
+      esac
+    fi
+  fi
+  flock -u 9
+}
+
+enter_mode
+cleaned=0
+cleanup() {
+  if (( cleaned == 0 )); then
+    cleaned=1
+    leave_mode
+  fi
+}
+trap cleanup EXIT HUP INT TERM
+
+cmd=("$@")
+if (( GAMESCOPE )); then
+  if command -v gamescope >/dev/null 2>&1; then
+    cmd=(gamescope -f -- "${cmd[@]}")
+  else
+    echo 'coffee-gaming-mode: Gamescope is not installed; continuing without it.' >&2
+  fi
+fi
+if (( HUD )); then
+  if command -v mangohud >/dev/null 2>&1; then
+    cmd=(mangohud "${cmd[@]}")
+  else
+    echo 'coffee-gaming-mode: MangoHud is not installed; continuing without it.' >&2
+  fi
+fi
+gamemode_cmd=''
+if command -v gamemoderun >/dev/null 2>&1; then
+  gamemode_cmd=$(command -v gamemoderun)
+elif [[ -x /usr/games/gamemoderun ]]; then
+  # Debian installs gamemoderun under /usr/games, which is not guaranteed to
+  # be present in every graphical-session PATH.
+  gamemode_cmd=/usr/games/gamemoderun
+fi
+if [[ -n $gamemode_cmd ]]; then
+  cmd=("$gamemode_cmd" "${cmd[@]}")
+else
+  echo 'coffee-gaming-mode: GameMode is not installed; launching without daemon tuning.' >&2
+fi
+
+# Give the game its own user cgroup with high CPU/I/O weights when systemd's
+# user manager is available. This is bounded cgroup weighting, not realtime
+# scheduling, and gracefully falls back on non-systemd sessions.
+if (( USE_SCOPE )) && command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+  cmd=(systemd-run --user --scope --quiet -p CPUWeight=10000 -p IOWeight=10000 -- "${cmd[@]}")
+fi
+set +e
+"${cmd[@]}"
+rc=$?
+set -e
+cleanup
+trap - EXIT HUP INT TERM
+exit "$rc"

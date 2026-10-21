@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=About CoffeeOS
+Comment=View CoffeeOS system details
+Exec=foot -e coffee-info
+Icon=coffeeos
+Terminal=false
+Categories=System;

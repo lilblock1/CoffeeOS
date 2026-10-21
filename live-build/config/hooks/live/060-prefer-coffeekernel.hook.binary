@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+# Core/Deep builds install CoffeeKernel alongside Debian's recovery kernel.
+# live-build's configured flavour remains amd64, so its generated default menu
+# naturally points at Debian's kernel. When exactly one CoffeeKernel is present,
+# rewrite only CoffeeOS' simple default boot templates to boot it instead. All
+# kernel files remain on the ISO so Debian is still available as fallback.
+set -- binary/live/vmlinuz-*-coffee
+[ -e "$1" ] || { echo 'CoffeeOS: no CoffeeKernel in binary/live (stock mode); leaving Debian default.'; exit 0; }
+[ "$#" -eq 1 ] || { echo "CoffeeOS: expected exactly one CoffeeKernel, got $#" >&2; exit 1; }
+kernel=$(basename "$1")
+version=${kernel#vmlinuz-}
+initrd="initrd.img-$version"
+[ -f "binary/live/$initrd" ] || { echo "CoffeeOS: missing CoffeeKernel initrd: $initrd" >&2; exit 1; }
+
+# Our custom GRUB file has only CoffeeOS live entries, so changing its live
+# kernel/initrd references does not remove the Debian kernel from the medium.
+if [ -f binary/boot/grub/grub.cfg ]; then
+    sed -E -i \
+      -e "s#([[:space:]]*linux[[:space:]]+)/live/vmlinuz-[^[:space:]]+#\\1/live/$kernel#" \
+      -e "s#([[:space:]]*initrd[[:space:]]+)/live/initrd\\.img-[^[:space:]]+#\\1/live/$initrd#" \
+      binary/boot/grub/grub.cfg
+fi
+
+# The syslinux template contains only the normal/safe CoffeeOS entries for the
+# configured amd64 flavour. Patch generated files if present.
+for cfg in binary/isolinux/live.cfg binary/isolinux/*.cfg; do
+    [ -f "$cfg" ] || continue
+    sed -E -i \
+      -e "s#([[:space:]]*linux[[:space:]]+)/?live/vmlinuz-[^[:space:]]+#\\1/live/$kernel#" \
+      -e "s#([[:space:]]*initrd[[:space:]]+)/?live/initrd\\.img-[^[:space:]]+#\\1/live/$initrd#" \
+      "$cfg"
+done
+
+echo "CoffeeOS: CoffeeKernel selected as live boot default: $kernel"

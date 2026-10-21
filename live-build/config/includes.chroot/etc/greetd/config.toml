@@ -1,0 +1,9 @@
+# CoffeeOS installed-system/default greetd configuration.
+# The live ISO generates a runtime-only config with an initial auto-login
+# session; installed CoffeeOS systems keep password-based login by default.
+[terminal]
+vt = 7
+
+[default_session]
+command = "/usr/local/bin/coffee-greeter"
+user = "_greetd"

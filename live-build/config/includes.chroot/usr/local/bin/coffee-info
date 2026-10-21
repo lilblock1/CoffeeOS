@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""Read-only local system summary. No network or privilege required."""
+from __future__ import annotations
+import os
+import platform
+from pathlib import Path
+import subprocess
+
+def pretty_mem():
+    try:
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            if line.startswith('MemTotal:'):
+                return f"{int(line.split()[1]) / 1048576:.1f} GiB"
+    except OSError:
+        pass
+    return 'unknown'
+
+def root_disk():
+    try:
+        x = os.statvfs('/')
+        return f"{x.f_blocks*x.f_frsize / (1024**3):.1f} GiB"
+    except OSError:
+        return 'unknown'
+
+if __name__ == '__main__':
+    print('☕ CoffeeOS · 0.10.0-dev (Debian Trixie base)')
+    print('Kernel:', platform.release())
+    print('Processor:', platform.machine(), platform.processor() or '(not reported)')
+    print('Memory:', pretty_mem())
+    print('Root filesystem capacity:', root_disk())
+    print('Profile: see coffee-profile show')

@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Lightweight CoffeeOS quick settings. Uses GTK3 already present on the desktop."""
+from __future__ import annotations
+import json
+import os
+import subprocess
+from pathlib import Path
+
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk, GLib
+
+STYLE = '''
+window.coffee { background: #251915; color: #f8eade; }
+.coffee label { color: #f8eade; }
+.coffee .heading { color: #e7aa70; font-weight: bold; font-size: 22px; }
+.coffee .hint { color: #cdb8a6; font-size: 11px; }
+.coffee button { background-image: none; background: #463027; color: #fff0e0;
+                 border-radius: 9px; border: 1px solid #70503a; padding: 9px; }
+.coffee button:hover { background: #604231; }
+.coffee combobox button { padding: 5px; }
+.coffee switch { background: #65473a; }
+.coffee switch:checked { background: #b77d4c; }
+'''
+
+THEME_CHOICES = (
+    ('espresso-noir', 'Espresso Noir'),
+    ('latte-cream', 'Latte Cream'),
+    ('caramel-sunrise', 'Caramel Sunrise'),
+    ('mocha-night', 'Mocha Night'),
+    ('hazelnut-mist', 'Hazelnut Mist'),
+    ('macchiato-glow', 'Macchiato Glow'),
+)
+STYLE_PROVIDER = None
+
+def config_home():
+    return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
+
+def apply_theme_style():
+    global STYLE_PROVIDER
+    screen = Gdk.Screen.get_default()
+    if screen is None:
+        return
+    css_path = config_home() / 'coffeeos' / 'quick-settings.css'
+    try:
+        data = css_path.read_bytes()
+    except OSError:
+        data = STYLE.encode('utf-8')
+    if STYLE_PROVIDER is None:
+        STYLE_PROVIDER = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(
+            screen, STYLE_PROVIDER, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    STYLE_PROVIDER.load_from_data(data)
+
+def run(*command):
+    try:
+        return subprocess.run(command, check=True, text=True,
+                              capture_output=True, timeout=4).stdout.strip()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+class Settings(Gtk.Window):
+    def __init__(self):
+        super().__init__(title='Coffee Quick Settings')
+        self.set_default_size(380, 420)
+        self.set_resizable(False)
+        self.get_style_context().add_class('coffee')
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=13)
+        box.set_border_width(24)
+        self.add(box)
+        self.label(box, '☕  CoffeeOS', 'heading')
+        self.label(box, 'A little more control, without the overhead.', 'hint')
+        self.message = Gtk.Label(label='')
+        self.message.set_xalign(0)
+        self.message.set_line_wrap(True)
+
+        bar = Gtk.Box(spacing=8)
+        box.pack_start(bar, False, False, 0)
+        self.button(bar, 'Wi-Fi & Network', lambda *_: self.launch('nm-connection-editor'))
+        self.button(bar, 'Sound', lambda *_: self.launch('pavucontrol'))
+
+        self.label(box, 'Desktop theme')
+        theme = Gtk.ComboBoxText()
+        for name, label in THEME_CHOICES:
+            theme.append(name, label)
+        appearance = run('coffee-appearance', 'show')
+        try:
+            existing = json.loads(appearance or '{}')
+        except ValueError:
+            existing = {}
+        current=existing.get('theme', 'espresso-noir')
+        if current == 'espresso': current='espresso-noir'
+        if current == 'latte': current='latte-cream'
+        theme.set_active_id(current)
+        theme.connect('changed', self.change_theme)
+        box.pack_start(theme, False, False, 0)
+
+        toggle_row = Gtk.Box(spacing=8)
+        box.pack_start(toggle_row, False, False, 0)
+        self.label(toggle_row, 'Window shadows & subtle effects')
+        toggle = Gtk.Switch()
+        toggle.set_active(existing.get('effects', True))
+        toggle.connect('notify::active', self.change_effects)
+        toggle_row.pack_end(toggle, False, False, 0)
+
+        self.label(box, 'Profile preference (CPU changes require authorization)', 'hint')
+        profile = Gtk.ComboBoxText()
+        for name in ('lite', 'balanced', 'performance', 'portable'):
+            profile.append(name, name.capitalize())
+        active = run('coffee-profile', 'show')
+        profile.set_active_id(active if active in ('lite','balanced','performance','portable') else 'balanced')
+        profile.connect('changed', self.change_profile)
+        box.pack_start(profile, False, False, 0)
+        self.label(box, 'Profiles in this window save a preference only; use sudo coffee-profile apply to tune the CPU.', 'hint')
+        self.button(box, 'Open Coffee Control Center', lambda *_: self.launch('coffee-control-center'))
+        self.button(box, 'About this system', lambda *_: self.launch('coffee-info-terminal'))
+        box.pack_end(self.message, False, False, 0)
+
+    def label(self, container, label, css=None):
+        widget = Gtk.Label(label=label)
+        widget.set_xalign(0)
+        widget.set_line_wrap(True)
+        if css:
+            widget.get_style_context().add_class(css)
+        container.pack_start(widget, False, False, 0)
+        return widget
+
+    def button(self, container, text, callback):
+        button = Gtk.Button(label=text)
+        button.connect('clicked', callback)
+        container.pack_start(button, True, True, 0)
+        return button
+
+    def launch(self, app):
+        from shutil import which
+        if which(app) is None:
+            self.message.set_text(f'{app} is not installed.')
+            return
+        try:
+            subprocess.Popen([app], start_new_session=True)
+        except OSError as exc:
+            self.message.set_text(str(exc))
+
+    def change_theme(self, widget):
+        if widget.get_active_id():
+            result = run('coffee-appearance', 'theme', widget.get_active_id())
+            apply_theme_style()
+            self.message.set_text(result or 'Could not change theme.')
+
+    def change_effects(self, widget, _param):
+        result = run('coffee-appearance', 'effects', 'on' if widget.get_active() else 'off')
+        self.message.set_text(result or 'Could not change effects.')
+
+    def change_profile(self, widget):
+        if widget.get_active_id():
+            self.message.set_text(run('coffee-profile', 'set', widget.get_active_id()) or 'Could not save preference.')
+
+if __name__ == '__main__':
+    apply_theme_style()
+    w = Settings()
+    w.connect('destroy', Gtk.main_quit)
+    w.show_all()
+    Gtk.main()

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CoffeeOS Gaming Diagnostics
+Comment=Show GPU, Vulkan, GameMode, Steam and compatibility status
+Exec=foot -e coffee-gaming-info
+Icon=applications-games
+Terminal=false
+Categories=Game;System;

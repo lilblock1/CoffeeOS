@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Conservative per-device I/O scheduler choice. No persistent device settings,
+# no queue-depth hacks, and no assumptions for dm/md/loop devices.
+set -u
+for dev in /sys/block/nvme* /sys/block/sd* /sys/block/mmcblk*; do
+  [[ -d $dev/queue && -w $dev/queue/scheduler ]] || continue
+  name=${dev##*/}
+  sched=$(cat "$dev/queue/scheduler" 2>/dev/null || true)
+  rotational=$(cat "$dev/queue/rotational" 2>/dev/null || echo 0)
+  target=''
+  if [[ $name == nvme* ]]; then
+    [[ " $sched " == *' none '* || " $sched " == *'[none]'* ]] && target=none
+  elif [[ $rotational == 1 ]]; then
+    if [[ " $sched " != *bfq* ]]; then modprobe bfq 2>/dev/null || true; sched=$(cat "$dev/queue/scheduler" 2>/dev/null || true); fi
+    [[ $sched == *bfq* ]] && target=bfq
+  else
+    [[ $sched == *mq-deadline* ]] && target=mq-deadline
+  fi
+  if [[ -n $target ]]; then
+    printf '%s\n' "$target" > "$dev/queue/scheduler" 2>/dev/null || true
+  fi
+done
+exit 0

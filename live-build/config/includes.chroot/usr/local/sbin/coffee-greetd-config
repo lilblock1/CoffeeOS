@@ -1,0 +1,46 @@
+#!/bin/sh
+# Generate greetd's runtime config. The Debian live ISO auto-signs into the
+# CoffeeOS live account, while an installed system keeps the normal greeter.
+set -eu
+
+runtime_dir=/run/coffeeos
+runtime_cfg="$runtime_dir/greetd.toml"
+base_cfg=/etc/greetd/config.toml
+mkdir -p "$runtime_dir"
+
+is_live=0
+if grep -qw 'boot=live' /proc/cmdline 2>/dev/null; then
+    is_live=1
+fi
+
+# live-config creates the requested live account during boot. Normally the
+# systemd ordering below is sufficient; this short wait also avoids a race on
+# unusually slow VMs without blocking an installed system.
+if [ "$is_live" -eq 1 ]; then
+    tries=0
+    while ! id coffeeos >/dev/null 2>&1 && [ "$tries" -lt 100 ]; do
+        tries=$((tries + 1))
+        sleep 0.1
+    done
+fi
+
+if [ "$is_live" -eq 1 ] && id coffeeos >/dev/null 2>&1; then
+    cat > "$runtime_cfg" <<'CONFIG'
+[terminal]
+vt = 7
+
+# Auto-sign in once when the live ISO boots. If the session exits, greetd falls
+# back to the normal graphical greeter below.
+[initial_session]
+command = "/usr/local/bin/coffee-session"
+user = "coffeeos"
+
+[default_session]
+command = "/usr/local/bin/coffee-greeter"
+user = "_greetd"
+CONFIG
+else
+    cp "$base_cfg" "$runtime_cfg"
+fi
+
+chmod 0644 "$runtime_cfg"

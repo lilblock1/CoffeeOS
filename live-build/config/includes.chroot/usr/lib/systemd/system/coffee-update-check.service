@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for CoffeeOS and Debian updates
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/run/live/medium
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/coffee-update check --background
+Nice=10
+IOSchedulingClass=idle

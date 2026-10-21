@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""CoffeeKernel runtime CPUFreq governor and energy-preference profiles.
+
+No daemon. Applies only supported sysfs controls, keeps original values so
+`restore` can return to pre-CoffeeOS settings. No overclock/frequency limits.
+"""
+from __future__ import annotations
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+
+CPUFREQ = Path('/sys/devices/system/cpu/cpufreq')
+STATE = Path('/var/lib/coffeeos/kernel-profile.json')
+PROFILES = {
+    'lite': (('powersave', 'schedutil', 'ondemand'), ('power', 'balance_power')),
+    'balanced': (('schedutil', 'powersave', 'ondemand'), ('balance_performance', 'balance_power')),
+    'performance': (('performance', 'schedutil', 'powersave'), ('performance', 'balance_performance')),
+    'portable': (('powersave', 'schedutil', 'ondemand'), ('balance_power', 'power')),
+}
+
+class ProfileError(Exception):
+    pass
+
+def read(path):
+    try:
+        return path.read_text(encoding='ascii').strip()
+    except (OSError, UnicodeError):
+        return None
+
+def observe(root=CPUFREQ):
+    result = {}
+    for directory in sorted(root.glob('policy[0-9]*')):
+        if not re.fullmatch(r'policy\d+', directory.name) or not directory.is_dir():
+            continue
+        name = directory.name
+        governors = read(directory/'scaling_available_governors')
+        epps = read(directory/'energy_performance_available_preferences')
+        result[name] = {
+            'driver': read(directory/'scaling_driver'),
+            'governor': read(directory/'scaling_governor'),
+            'governors': governors.split() if governors else [],
+            'epp': read(directory/'energy_performance_preference'),
+            'epps': epps.split() if epps else [],
+        }
+    return result
+
+def preferred(names, allowed):
+    return next((x for x in names if x in allowed), None)
+
+def compute(profile, current):
+    if profile not in PROFILES:
+        raise ProfileError('Invalid profile')
+    if not current:
+        raise ProfileError('No CPUFreq policies found (possibly unsupported VM/hardware)')
+    desired = {}
+    governors, epps = PROFILES[profile]
+    for name, val in current.items():
+        governor = preferred(governors, val['governors'])
+        epp = preferred(epps, val['epps'])
+        if not (governor or epp):
+            raise ProfileError(f'{name} has no supported profile controls')
+        change = {}
+        if governor:
+            change['scaling_governor'] = governor
+        if epp:
+            change['energy_performance_preference'] = epp
+        desired[name] = change
+    return desired
+
+def snapshot(current):
+    result = {}
+    for name, val in current.items():
+        result[name] = {}
+        if val['governor'] is not None:
+            result[name]['scaling_governor'] = val['governor']
+        if val['epp'] is not None:
+            result[name]['energy_performance_preference'] = val['epp']
+    return result
+
+def load(path):
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('original'), dict):
+        raise ProfileError('Invalid saved baseline: refusing to overwrite it')
+    return data
+
+def save(path, data):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile('w', dir=path.parent, prefix='.kernel-', delete=False) as out:
+            tmp = Path(out.name)
+            json.dump(data, out, indent=2, sort_keys=True)
+            out.write('\n')
+            out.flush()
+            os.fsync(out.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
+def changed_to(current, target):
+    result = {}
+    for name, attrs in target.items():
+        if name not in current:
+            raise ProfileError(f'CPU policy {name} is missing; refusing partial restore')
+        changes = {}
+        for key, field, allowed in (('scaling_governor', 'governor', 'governors'),
+                                    ('energy_performance_preference', 'epp', 'epps')):
+            if key in attrs and attrs[key] != current[name][field]:
+                if attrs[key] not in current[name][allowed]:
+                    raise ProfileError(f'{name}: previous {key} value no longer supported')
+                changes[key] = attrs[key]
+        result[name] = changes
+    return result
+
+def write(root, changes):
+    for name, attrs in changes.items():
+        for key in ('scaling_governor', 'energy_performance_preference'):
+            if key in attrs:
+                path = root/name/key
+                if read(path) != attrs[key]:
+                    path.write_text(attrs[key] + '\n', encoding='ascii')
+
+def verify(root, changes):
+    current = observe(root)
+    for name, attrs in changes.items():
+        for key, val in attrs.items():
+            actual = current[name]['governor' if key == 'scaling_governor' else 'epp']
+            if actual != val:
+                raise ProfileError(f'{name}/{key}: requested {val}, got {actual}')
+
+def apply(profile, root=CPUFREQ, state=STATE):
+    current = observe(root)
+    changes = compute(profile, current)
+    saved = load(state)
+    original = saved['original'] if saved else snapshot(current)
+    # Journal the original settings *before* writing to sysfs.
+    save(state, {'version': 1, 'profile': profile, 'status': 'applying', 'original': original})
+    try:
+        write(root, changes)
+        verify(root, changes)
+        save(state, {'version': 1, 'profile': profile, 'status': 'applied', 'original': original})
+    except Exception as exc:
+        try:
+            rollback = changed_to(observe(root), snapshot(current))
+            write(root, rollback)
+            verify(root, rollback)
+            if saved is None:
+                state.unlink(missing_ok=True)
+            else:
+                save(state, saved)
+        except Exception as rollback_error:
+            raise ProfileError(f'Apply failed ({exc}); rollback FAILED ({rollback_error}); run restore') from exc
+        raise ProfileError(f'Apply failed; previous values restored: {exc}') from exc
+    return changes
+
+def restore(root=CPUFREQ, state=STATE):
+    saved = load(state)
+    if saved is None:
+        raise ProfileError('No saved baseline to restore')
+    changes = changed_to(observe(root), saved['original'])
+    write(root, changes)
+    verify(root, changes)
+    state.unlink()
+    return changes
+
+def main():
+    parser = argparse.ArgumentParser(description='Live CoffeeKernel performance/energy controls')
+    commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('list')
+    commands.add_parser('status')
+    commands.add_parser('restore')
+    for name in ('plan', 'apply'):
+        commands.add_parser(name).add_argument('profile', choices=PROFILES.keys())
+    args = parser.parse_args()
+    try:
+        if args.command == 'list':
+            print('\n'.join(PROFILES))
+        elif args.command == 'status':
+            saved = load(STATE)
+            print(json.dumps({'selected': saved.get('profile') if saved else None,
+                              'state': saved.get('status') if saved else 'not applied',
+                              'policies': observe()}, indent=2))
+        elif args.command == 'plan':
+            print(json.dumps(compute(args.profile, observe()), indent=2))
+        else:
+            if os.geteuid() != 0:
+                raise ProfileError('Root required: sudo coffee-kernel-profile ' + args.command +
+                                   (' ' + args.profile if args.command == 'apply' else ''))
+            STATE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(STATE.parent, 0o700)
+            with (STATE.parent/'kernel-profile.lock').open('a+') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                changed = apply(args.profile) if args.command == 'apply' else restore()
+            print(f'{args.command}: processed {len(changed)} CPU policy/policies')
+            print(json.dumps(observe(), indent=2))
+    except (ProfileError, OSError, ValueError) as exc:
+        print('CoffeeKernel: ' + str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())

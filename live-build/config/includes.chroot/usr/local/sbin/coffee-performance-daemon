@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Coffee Performance Daemon.
+
+Automatically enters a reversible gaming profile when Coffee Gaming Mode is
+active or a Steam/Proton game is detected. It never overclocks, disables CPU
+security mitigations, kills user applications, or applies realtime scheduling.
+"""
+from __future__ import annotations
+import argparse, json, os, re, signal, subprocess, sys, time
+from pathlib import Path
+
+RUN=Path('/run/coffeeos'); STATE=RUN/'performance-daemon.json'; STOP=False
+CONFIG=Path('/etc/coffeeos/performance.conf')
+EXCLUDE={'steam','steamwebhelper','wineserver','pressure-vessel','pv-bwrap','gamemoded','gamescope','mangohud'}
+
+def config():
+    d={'AUTO_GAME_DETECTION':'1','POLL_SECONDS':'2'}
+    try:
+        for line in CONFIG.read_text().splitlines():
+            line=line.strip()
+            if not line or line.startswith('#') or '=' not in line: continue
+            k,v=line.split('=',1); k=k.strip(); v=v.strip()
+            if k in d: d[k]=v
+    except OSError: pass
+    try: poll=max(1,min(30,int(d['POLL_SECONDS'])))
+    except ValueError: poll=2
+    return d['AUTO_GAME_DETECTION'] not in ('0','no','false','off'),poll
+
+def run(argv,timeout=5):
+    try: return subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,check=False)
+    except (OSError,subprocess.TimeoutExpired) as e: return type('R',(),{'returncode':127,'stdout':str(e)})()
+
+def kernel_selected():
+    p=run(['/usr/local/sbin/coffee-kernel-profile','status'])
+    if p.returncode: return None
+    try: return json.loads(p.stdout).get('selected')
+    except ValueError: return None
+
+def marker_active():
+    for f in Path('/run/user').glob('*/coffeeos-gaming/state') if Path('/run/user').exists() else []:
+        try:
+            m=re.search(r'^COUNT=(\d+)',f.read_text(),re.M)
+            if m and int(m.group(1))>0: return True
+        except (OSError,ValueError): pass
+    return False
+
+def proc_games():
+    found=[]
+    for p in Path('/proc').iterdir():
+        if not p.name.isdigit(): continue
+        try:
+            comm=(p/'comm').read_text(errors='ignore').strip().lower()
+            if comm in EXCLUDE: continue
+            cmd=(p/'cmdline').read_bytes().replace(b'\0',b' ').decode(errors='ignore')
+            env=(p/'environ').read_bytes().split(b'\0')
+        except (OSError,PermissionError): continue
+        steam_id=''
+        for item in env:
+            if item.startswith((b'SteamAppId=',b'SteamGameId=')):
+                steam_id=item.split(b'=',1)[1].decode(errors='ignore'); break
+        steam_game=bool(steam_id and steam_id not in ('0','228980')) and 'steamwebhelper' not in cmd.lower()
+        proton_game='/steamapps/common/' in cmd.lower() or ('wine' in comm and '.exe' in cmd.lower())
+        if steam_game or proton_game: found.append({'pid':int(p.name),'comm':comm,'steam_app_id':steam_id})
+    return found[:32]
+
+def apply_gaming(previous):
+    run(['/usr/local/sbin/coffee-memory-tune','gaming'])
+    p=run(['/usr/local/sbin/coffee-kernel-profile','apply','performance'])
+    return p.returncode==0
+
+def restore(previous):
+    run(['/usr/local/sbin/coffee-memory-tune','normal'])
+    if previous in ('lite','balanced','performance','portable'):
+        run(['/usr/local/sbin/coffee-kernel-profile','apply',previous])
+    else:
+        run(['/usr/local/sbin/coffee-kernel-profile','restore'])
+
+def save(active,previous,games,reason,error=''):
+    RUN.mkdir(parents=True,exist_ok=True)
+    data={'active':active,'previous_profile':previous,'reason':reason,'games':games,'updated':int(time.time()),'error':error}
+    tmp=STATE.with_suffix('.tmp'); tmp.write_text(json.dumps(data,indent=2)+'\n'); os.replace(tmp,STATE)
+
+def one_cycle(current_active,previous):
+    auto,_=config(); marker=marker_active(); games=proc_games() if auto else []; want=marker or bool(games); reason='gaming-mode' if marker else ('game-detected' if games else 'idle')
+    if want and not current_active:
+        previous=kernel_selected(); ok=apply_gaming(previous); save(ok,previous,games,reason,'' if ok else 'performance profile could not be applied'); return ok,previous
+    if not want and current_active:
+        restore(previous); save(False,None,[],reason); return False,None
+    save(current_active,previous,games,reason); return current_active,previous
+
+def sig(*_):
+    global STOP; STOP=True
+
+def daemon():
+    if os.geteuid()!=0: print('coffee-performance-daemon: root required',file=sys.stderr); return 2
+    signal.signal(signal.SIGTERM,sig); signal.signal(signal.SIGINT,sig)
+    active=False; previous=None
+    # Recover enough state after a daemon restart to avoid stacking profiles.
+    if STATE.exists():
+        try:
+            d=json.loads(STATE.read_text()); active=bool(d.get('active')); previous=d.get('previous_profile')
+        except (OSError,ValueError): pass
+    while not STOP:
+        try: active,previous=one_cycle(active,previous)
+        except Exception as e: save(active,previous,[],'error',str(e))
+        _,poll=config(); time.sleep(poll)
+    if active:
+        try: restore(previous)
+        except Exception: pass
+    return 0
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument('command',choices=['run','once','status'],nargs='?',default='run'); a=ap.parse_args()
+    if a.command=='status':
+        if STATE.exists(): print(STATE.read_text(),end='')
+        else: print(json.dumps({'active':False,'reason':'not-running'},indent=2))
+        return 0
+    if a.command=='once':
+        if os.geteuid()!=0: return 2
+        one_cycle(False,None); return 0
+    return daemon()
+if __name__=='__main__': raise SystemExit(main())

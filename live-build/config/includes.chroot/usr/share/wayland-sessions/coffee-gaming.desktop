@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Coffee Gaming Session
+Comment=Minimal CoffeeOS session for gaming
+Exec=coffee-gaming-session
+TryExec=coffee-gaming-session
+Type=Application
+DesktopNames=CoffeeOS-Gaming

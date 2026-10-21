@@ -1,0 +1,554 @@
+#!/usr/bin/env python3
+"""Coffee Control Center — lightweight GTK3 frontend for existing CoffeeOS tools.
+
+Privileged actions are allow-listed and invoked through pkexec as argv arrays;
+no user-provided text is evaluated by a shell.
+"""
+from __future__ import annotations
+
+import json
+import os
+import platform
+import shutil
+import subprocess
+import threading
+from pathlib import Path
+
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gdk, GLib, Gtk
+
+STYLE = b'''
+window.coffee-control { background: #251915; color: #f8eade; }
+.coffee-control label { color: #f8eade; }
+.coffee-control .title { color: #e7aa70; font-size: 23px; font-weight: bold; }
+.coffee-control .section { color: #e7aa70; font-size: 15px; font-weight: bold; }
+.coffee-control .muted { color: #cdb8a6; }
+.coffee-control button { background-image: none; background: #463027; color: #fff0e0;
+                         border: 1px solid #70503a; border-radius: 8px; padding: 8px 12px; }
+.coffee-control button:hover { background: #604231; }
+.coffee-control button.suggested-action { background: #8d5b35; }
+.coffee-control frame { border-color: #70503a; border-radius: 10px; }
+.coffee-control textview, .coffee-control textview text { background: #1d1311; color: #ead8ca; }
+.coffee-control stacksidebar row:selected { background: #604231; }
+'''
+
+THEME_CHOICES = (
+    ('espresso-noir', 'Espresso Noir — deep black coffee and bronze'),
+    ('latte-cream', 'Latte Cream — bright cream and soft mocha'),
+    ('caramel-sunrise', 'Caramel Sunrise — amber and roasted caramel'),
+    ('mocha-night', 'Mocha Night — near-black mocha and copper'),
+    ('hazelnut-mist', 'Hazelnut Mist — warm hazelnut and soft cream'),
+    ('macchiato-glow', 'Macchiato Glow — cocoa, cream and golden foam'),
+)
+STYLE_PROVIDER = None
+
+def config_home():
+    return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
+
+def apply_theme_style():
+    global STYLE_PROVIDER
+    screen=Gdk.Screen.get_default()
+    if screen is None:
+        return
+    path=config_home()/'coffeeos'/'control-center.css'
+    try:
+        data=path.read_bytes()
+    except OSError:
+        data=STYLE
+    if STYLE_PROVIDER is None:
+        STYLE_PROVIDER=Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(screen,STYLE_PROVIDER,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    STYLE_PROVIDER.load_from_data(data)
+
+PROFILES = {
+    'lite': 'Minimum background power use for low-resource systems.',
+    'balanced': 'General-purpose performance and efficiency.',
+    'performance': 'Prefer responsiveness and sustained gaming performance.',
+    'portable': 'Battery-oriented settings for laptops and handhelds.',
+}
+OPTIONAL_APPS = {
+    'steam': ('Steam + Proton', 'steam-installer', 'Valve client plus 32-bit Vulkan/Mesa compatibility.'),
+    'wine': ('Wine + DXVK', 'wine', 'Windows compatibility stack with 32-bit DXVK support.'),
+    'gamescope': ('Gamescope', 'gamescope', 'Optional gaming micro-compositor from Trixie Backports.'),
+    'lutris': ('Lutris', 'lutris', 'Optional game-library launcher; never installed by default.'),
+    'heroic': ('Heroic Games Launcher', None, 'Optional third-party Flatpak from Flathub.'),
+}
+
+
+def capture(argv, timeout=8):
+    try:
+        p = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           timeout=timeout, check=False)
+        return p.returncode, p.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 127, str(exc)
+
+
+def is_live():
+    try:
+        return 'boot=live' in Path('/proc/cmdline').read_text(encoding='utf-8')
+    except OSError:
+        return False
+
+
+def package_installed(package):
+    rc, out = capture(['dpkg-query', '-W', '-f=${Status}', package], timeout=3)
+    return rc == 0 and 'install ok installed' in out
+
+
+def heroic_installed():
+    if not shutil.which('flatpak'):
+        return False
+    rc, _ = capture(['flatpak', 'info', 'com.heroicgameslauncher.hgl'], timeout=4)
+    return rc == 0
+
+
+def os_name():
+    try:
+        data = {}
+        for line in Path('/etc/os-release').read_text(encoding='utf-8').splitlines():
+            if '=' in line:
+                k, v = line.split('=', 1); data[k] = v.strip().strip('"')
+        return data.get('PRETTY_NAME', 'CoffeeOS')
+    except OSError:
+        return 'CoffeeOS'
+
+
+def memory_text():
+    try:
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            if line.startswith('MemTotal:'):
+                return f'{int(line.split()[1]) / 1048576:.1f} GiB'
+    except (OSError, ValueError):
+        pass
+    return 'Unknown'
+
+
+def gpu_text():
+    if not shutil.which('lspci'):
+        return 'lspci unavailable'
+    rc, out = capture(['lspci', '-nnk'], timeout=5)
+    if rc != 0:
+        return out or 'GPU query failed'
+    lines = out.splitlines(); selected = []
+    include = 0
+    for line in lines:
+        if any(x in line for x in ('VGA compatible controller', '3D controller', 'Display controller')):
+            selected.append(line.strip()); include = 2
+        elif include and line[:1].isspace():
+            selected.append(line.strip()); include -= 1
+        else:
+            include = 0
+    return '\n'.join(selected) if selected else 'No display controller reported'
+
+
+class CoffeeControlCenter(Gtk.Window):
+    def __init__(self):
+        super().__init__(title='Coffee Control Center')
+        self.set_default_size(920, 680)
+        self.set_size_request(760, 560)
+        self.get_style_context().add_class('coffee-control')
+        self.busy = False
+        self.software_buttons = {}
+
+        header = Gtk.HeaderBar(title='Coffee Control Center', subtitle='CoffeeOS system settings')
+        header.set_show_close_button(True)
+        self.set_titlebar(header)
+        self.spinner = Gtk.Spinner(); header.pack_end(self.spinner)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.add(outer)
+        body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        outer.pack_start(body, True, True, 0)
+
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,
+                               transition_duration=120)
+        sidebar = Gtk.StackSidebar(stack=self.stack)
+        sidebar.set_size_request(180, -1)
+        body.pack_start(sidebar, False, False, 0)
+        body.pack_start(self.stack, True, True, 0)
+
+        self.add_page('overview', 'Overview', self.overview_page())
+        self.add_page('performance', 'Performance', self.performance_page())
+        self.add_page('gaming', 'Gaming', self.gaming_page())
+        self.add_page('appearance', 'Appearance', self.appearance_page())
+        self.add_page('software', 'Software & Drivers', self.software_page())
+        self.add_page('updates', 'Updates', self.updates_page())
+
+        bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        bottom.set_border_width(8)
+        outer.pack_end(bottom, False, False, 0)
+        self.status = Gtk.Label(label='Ready')
+        self.status.set_xalign(0); self.status.get_style_context().add_class('muted')
+        bottom.pack_start(self.status, False, False, 0)
+        expander = Gtk.Expander(label='Last action output')
+        self.log = Gtk.TextView(editable=False, cursor_visible=False, monospace=True)
+        self.log.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        scroll = Gtk.ScrolledWindow(); scroll.set_min_content_height(100); scroll.add(self.log)
+        expander.add(scroll); bottom.pack_start(expander, False, True, 0)
+
+        self.refresh_overview(); self.refresh_performance(); self.refresh_software(); self.refresh_updates()
+
+    def add_page(self, name, title, widget):
+        scroll = Gtk.ScrolledWindow(); scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.add(widget); self.stack.add_titled(scroll, name, title)
+
+    @staticmethod
+    def page_box():
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        box.set_border_width(24)
+        return box
+
+    @staticmethod
+    def label(text, css=None, wrap=True):
+        w = Gtk.Label(label=text); w.set_xalign(0); w.set_selectable(False); w.set_line_wrap(wrap)
+        if css: w.get_style_context().add_class(css)
+        return w
+
+    def section(self, box, text):
+        w = self.label(text, 'section'); box.pack_start(w, False, False, 0); return w
+
+    @staticmethod
+    def button(text, callback, suggested=False):
+        b = Gtk.Button(label=text); b.connect('clicked', callback)
+        if suggested: b.get_style_context().add_class('suggested-action')
+        return b
+
+    def row(self, box, title, detail='', control=None):
+        frame = Gtk.Frame(); inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        inner.set_border_width(12); frame.add(inner)
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        labels.pack_start(self.label(title), False, False, 0)
+        if detail:
+            d = self.label(detail, 'muted'); labels.pack_start(d, False, False, 0)
+        inner.pack_start(labels, True, True, 0)
+        if control is not None: inner.pack_end(control, False, False, 0)
+        box.pack_start(frame, False, False, 0)
+        return frame
+
+    def set_log(self, text):
+        self.log.get_buffer().set_text(text or '(no output)')
+
+    def set_status(self, text):
+        self.status.set_text(text)
+
+    def confirm(self, title, text):
+        d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+                              buttons=Gtk.ButtonsType.CANCEL, text=title)
+        d.format_secondary_text(text); d.add_button('Continue', Gtk.ResponseType.OK)
+        result = d.run(); d.destroy(); return result == Gtk.ResponseType.OK
+
+    def launch(self, argv):
+        try:
+            subprocess.Popen(argv, start_new_session=True)
+        except OSError as exc:
+            self.set_status(str(exc))
+
+    def action(self, title, argv, after=None):
+        if self.busy:
+            self.set_status('Another system action is already running.'); return
+        self.busy = True; self.spinner.start(); self.set_status(title + '…'); self.set_log('Running: ' + ' '.join(argv))
+        def worker():
+            try:
+                p = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   timeout=7200, check=False)
+                rc, output = p.returncode, p.stdout
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                rc, output = 127, str(exc)
+            GLib.idle_add(self.finish_action, title, rc, output, after)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_action(self, title, rc, output, after):
+        self.busy = False; self.spinner.stop(); self.set_log(output)
+        self.set_status(f'{title}: ' + ('completed' if rc == 0 else f'failed (exit {rc})'))
+        if after: after(rc)
+        return False
+
+    # Overview
+    def overview_page(self):
+        box = self.page_box(); box.pack_start(self.label('☕  CoffeeOS', 'title'), False, False, 0)
+        box.pack_start(self.label('A lightweight gaming system with explicit, reversible controls.', 'muted'), False, False, 0)
+        self.overview_os = self.label(''); self.overview_kernel = self.label(''); self.overview_memory = self.label('')
+        self.overview_gpu = self.label('')
+        self.section(box, 'System')
+        for w in (self.overview_os, self.overview_kernel, self.overview_memory, self.overview_gpu): box.pack_start(w, False, False, 0)
+        actions = Gtk.Box(spacing=8)
+        actions.pack_start(self.button('Refresh', lambda *_: self.refresh_overview()), False, False, 0)
+        actions.pack_start(self.button('Network', lambda *_: self.launch(['nm-connection-editor'])), False, False, 0)
+        actions.pack_start(self.button('Sound', lambda *_: self.launch(['pavucontrol'])), False, False, 0)
+        actions.pack_start(self.button('Terminal Info', lambda *_: self.launch(['foot','-e','coffee-info'])), False, False, 0)
+        box.pack_start(actions, False, False, 0)
+        self.overview_session = self.label('', 'muted'); box.pack_start(self.overview_session, False, False, 0)
+        return box
+
+    def refresh_overview(self):
+        self.overview_os.set_text('Operating system: ' + os_name())
+        self.overview_kernel.set_text('Kernel: ' + platform.release() + '  ·  Architecture: ' + platform.machine())
+        self.overview_memory.set_text('Memory: ' + memory_text())
+        self.overview_gpu.set_text('Graphics:\n' + gpu_text())
+        self.overview_session.set_text('Session: ' + ('Live ISO (changes are temporary)' if is_live() else 'Installed system'))
+
+    # Performance
+    def performance_page(self):
+        box = self.page_box(); box.pack_start(self.label('Performance', 'title'), False, False, 0)
+        box.pack_start(self.label('CoffeeKernel profiles change supported CPU governor/EPP controls. No overclocking or mitigation disabling.', 'muted'), False, False, 0)
+        self.profile_runtime = self.label(''); box.pack_start(self.profile_runtime, False, False, 0)
+        self.engine_runtime = self.label(''); box.pack_start(self.engine_runtime, False, False, 0)
+        self.profile_radios = {}
+        group = None
+        for name, detail in PROFILES.items():
+            radio = Gtk.RadioButton.new_with_label_from_widget(group, name.capitalize()) if group else Gtk.RadioButton.new_with_label(None, name.capitalize())
+            if group is None: group = radio
+            self.profile_radios[name] = radio
+            self.row(box, name.capitalize(), detail, radio)
+        buttons = Gtk.Box(spacing=8)
+        buttons.pack_start(self.button('Apply Profile', self.apply_profile, True), False, False, 0)
+        buttons.pack_start(self.button('Use Recommended', self.recommend_profile), False, False, 0)
+        buttons.pack_start(self.button('Restore Original CPU Settings', self.restore_profile), False, False, 0)
+        buttons.pack_start(self.button('Refresh', lambda *_: self.refresh_performance()), False, False, 0)
+        box.pack_start(buttons, False, False, 0)
+        tools = Gtk.Box(spacing=8)
+        tools.pack_start(self.button('Hardware Probe', lambda *_: self.action('Hardware probe',['coffee-hardware-info'])), False, False, 0)
+        tools.pack_start(self.button('Quick Benchmark', lambda *_: self.action('Quick benchmark',['coffee-benchmark','--quick'])), False, False, 0)
+        tools.pack_start(self.button('Performance Engine Status', lambda *_: self.action('Performance engine status',['coffee-performance-status'])), False, False, 0)
+        box.pack_start(tools, False, False, 0)
+        return box
+
+    def refresh_performance(self):
+        rc, pref = capture(['coffee-profile','show'],3); pref = pref.strip() if rc == 0 else 'balanced'
+        if pref in self.profile_radios: self.profile_radios[pref].set_active(True)
+        rc, raw = capture(['coffee-profile','status'],5)
+        if rc == 0:
+            try:
+                d=json.loads(raw); selected=d.get('selected') or 'none'; state=d.get('state','unknown'); policies=d.get('policies',{})
+                self.profile_runtime.set_text(f'Runtime profile: {selected} ({state})  ·  CPU policies detected: {len(policies)}')
+            except ValueError:
+                self.profile_runtime.set_text('Runtime profile status unavailable.')
+        else: self.profile_runtime.set_text('Runtime profile status unavailable: ' + (raw or 'unknown error'))
+        rc, raw = capture(['/usr/local/sbin/coffee-performance-daemon','status'],3)
+        try:
+            d=json.loads(raw) if rc==0 else {}
+            self.engine_runtime.set_text('Adaptive engine: ' + ('gaming active' if d.get('active') else 'idle') + ' · ' + d.get('reason','unknown'))
+        except ValueError:
+            self.engine_runtime.set_text('Adaptive engine status unavailable.')
+
+    def selected_profile(self):
+        return next((n for n,r in self.profile_radios.items() if r.get_active()), 'balanced')
+
+    def apply_profile(self, *_):
+        profile=self.selected_profile()
+        if not self.confirm('Apply performance profile?', f'Apply the {profile} CoffeeKernel profile to supported CPU controls?'):
+            return
+        def done(rc):
+            if rc == 0: capture(['coffee-profile','set',profile],3)
+            self.refresh_performance()
+        self.action('Apply performance profile', ['pkexec','/usr/local/sbin/coffee-kernel-profile','apply',profile], done)
+
+    def restore_profile(self, *_):
+        if self.confirm('Restore original CPU settings?', 'Restore the governor/EPP values saved before CoffeeOS applied a profile?'):
+            self.action('Restore CPU settings', ['pkexec','/usr/local/sbin/coffee-kernel-profile','restore'], lambda _rc:self.refresh_performance())
+
+    def recommend_profile(self, *_):
+        rc, raw=capture(['coffee-autotune','--json'],5)
+        try: value=json.loads(raw).get('profile','balanced') if rc==0 else 'balanced'
+        except ValueError: value='balanced'
+        if value in self.profile_radios: self.profile_radios[value].set_active(True)
+        self.set_status('Hardware-aware recommendation selected: ' + value + '. Click Apply Profile to activate it.')
+
+    # Gaming
+    def gaming_page(self):
+        box=self.page_box(); box.pack_start(self.label('Gaming', 'title'), False, False, 0)
+        box.pack_start(self.label('Defaults below affect coffee-gaming-mode only. GameMode remains reversible and no overclocking is enabled.', 'muted'), False, False, 0)
+        rc, raw=capture(['coffee-gaming-preferences','show'],3)
+        try: prefs=json.loads(raw) if rc==0 else {}
+        except ValueError: prefs={}
+        hud=Gtk.Switch(); hud.set_active(bool(prefs.get('hud',False))); hud.connect('notify::active', self.gaming_pref, 'hud')
+        gamescope=Gtk.Switch(); gamescope.set_active(bool(prefs.get('gamescope',False))); gamescope.connect('notify::active', self.gaming_pref, 'gamescope')
+        self.row(box,'MangoHud by default','Show MangoHud when launching through Coffee Gaming Mode.',hud)
+        self.row(box,'Gamescope by default','Wrap games in fullscreen Gamescope when it is installed.',gamescope)
+        actions=Gtk.Box(spacing=8)
+        actions.pack_start(self.button('Gaming Diagnostics', lambda *_: self.launch(['foot','-e','coffee-gaming-info'])), False, False, 0)
+        actions.pack_start(self.button('Reset Gaming Defaults', self.reset_gaming), False, False, 0)
+        box.pack_start(actions, False, False, 0)
+        self.section(box,'Steam launch option')
+        entry=Gtk.Entry(); entry.set_text('coffee-gaming-mode -- %command%'); entry.set_editable(False); box.pack_start(entry,False,False,0)
+        box.pack_start(self.label('SteamAppId is detected automatically, so per-game overrides can be stored with coffee-gaming-preferences game-set ID hud|gamescope on|off. Gaming Mode also places the game in a high-weight user cgroup when systemd supports it.', 'muted'),False,False,0)
+        return box
+
+    def gaming_pref(self, widget, _param, key):
+        value='on' if widget.get_active() else 'off'
+        rc,out=capture(['coffee-gaming-preferences','set',key,value],3)
+        self.set_status(out if rc==0 else 'Could not save gaming preference: '+out)
+
+    def reset_gaming(self, *_):
+        rc,out=capture(['coffee-gaming-preferences','reset'],3); self.set_status(out if rc==0 else out)
+
+    # Appearance
+    def appearance_page(self):
+        box=self.page_box(); box.pack_start(self.label('Appearance', 'title'), False, False, 0)
+        rc,raw=capture(['coffee-appearance','show'],3)
+        try: state=json.loads(raw) if rc==0 else {}
+        except ValueError: state={}
+        combo=Gtk.ComboBoxText()
+        for theme_id, label in THEME_CHOICES: combo.append(theme_id,label)
+        current=state.get('theme','espresso-noir')
+        if current == 'espresso': current='espresso-noir'
+        if current == 'latte': current='latte-cream'
+        combo.set_active_id(current); combo.connect('changed',self.change_theme)
+        self.row(box,'Coffee theme','A complete CoffeeOS preset: windows, GTK apps, panel, launcher, notifications, terminal colors and its matching wallpaper.',combo)
+        effects=Gtk.Switch(); effects.set_active(state.get('effects',True)); effects.connect('notify::active',self.change_effects)
+        self.row(box,'Desktop effects','Subtle shadows and animations. Gaming Mode temporarily disables these.',effects)
+        wp=Gtk.Box(spacing=8); wp.pack_start(self.button('Choose Custom Wallpaper',self.choose_wallpaper),False,False,0); wp.pack_start(self.button('Use Theme Wallpaper',self.reset_wallpaper),False,False,0)
+        box.pack_start(wp,False,False,0)
+        box.pack_start(self.label('Wallpaper changes restart only swaybg; they do not restart your compositor.', 'muted'),False,False,0)
+        return box
+
+    def change_theme(self, widget):
+        value=widget.get_active_id()
+        if value:
+            rc,out=capture(['coffee-appearance','theme',value],5)
+            if rc==0: apply_theme_style()
+            self.set_status(out if rc==0 else 'Theme change failed: '+out)
+
+    def change_effects(self, widget, _param):
+        rc,out=capture(['coffee-appearance','effects','on' if widget.get_active() else 'off'],5); self.set_status(out if rc==0 else 'Effect change failed: '+out)
+
+    def choose_wallpaper(self, *_):
+        d=Gtk.FileChooserDialog(title='Choose CoffeeOS wallpaper',parent=self,action=Gtk.FileChooserAction.OPEN)
+        d.add_buttons(Gtk.STOCK_CANCEL,Gtk.ResponseType.CANCEL,Gtk.STOCK_OPEN,Gtk.ResponseType.OK)
+        f=Gtk.FileFilter(); f.set_name('Images'); f.add_pixbuf_formats(); d.add_filter(f)
+        if d.run()==Gtk.ResponseType.OK:
+            chosen=d.get_filename(); cfg=Path.home()/'.config/coffeeos/wallpaper'; cfg.parent.mkdir(parents=True,exist_ok=True); cfg.write_text(str(Path(chosen).resolve())+'\n')
+            self.restart_wallpaper(); self.set_status('Wallpaper changed.')
+        d.destroy()
+
+    def reset_wallpaper(self, *_):
+        (Path.home()/'.config/coffeeos/wallpaper').unlink(missing_ok=True); self.restart_wallpaper(); self.set_status('Theme wallpaper restored.')
+
+    def restart_wallpaper(self):
+        capture(['pkill','-x','swaybg'],2)
+        try: subprocess.Popen(['coffee-wallpaper'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        except OSError: pass
+
+    # Software / drivers
+    def software_page(self):
+        box=self.page_box(); box.pack_start(self.label('Software & Drivers', 'title'),False,False,0)
+        box.pack_start(self.label('These are optional on the same CoffeeOS ISO. During installation they are checkboxes in Calamares; after installation you can add them here.', 'muted'),False,False,0)
+        self.software_box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=10); box.pack_start(self.software_box,False,False,0)
+        for key,(name,_pkg,detail) in OPTIONAL_APPS.items():
+            b=self.button('Install',lambda _b,k=key:self.install_optional(k)); self.software_buttons[key]=b
+            self.row(self.software_box,name,detail,b)
+        self.section(box,'Graphics driver')
+        self.driver_status=self.label(''); box.pack_start(self.driver_status,False,False,0)
+        driver_buttons=Gtk.Box(spacing=8)
+        self.nvidia_button=self.button('Install Debian NVIDIA Driver',self.install_nvidia)
+        driver_buttons.pack_start(self.nvidia_button,False,False,0)
+        driver_buttons.pack_start(self.button('Refresh',lambda *_:self.refresh_software()),False,False,0)
+        box.pack_start(driver_buttons,False,False,0)
+        box.pack_start(self.label('NVIDIA installation is explicit and is blocked in the disposable live session. AMD/Intel use Debian Mesa and firmware from the base system.', 'muted'),False,False,0)
+        return box
+
+    def refresh_software(self):
+        live=is_live()
+        for key,(_name,pkg,_detail) in OPTIONAL_APPS.items():
+            installed=heroic_installed() if key=='heroic' else package_installed(pkg)
+            b=self.software_buttons[key]; b.set_label('Installed' if installed else ('Install after CoffeeOS setup' if live else 'Install'))
+            b.set_sensitive(not installed and not live)
+        gpu=gpu_text(); nvidia='NVIDIA' in gpu.upper()
+        driver_installed=shutil.which('nvidia-smi') is not None
+        self.driver_status.set_text(('NVIDIA proprietary driver installed.' if driver_installed else 'Graphics hardware:\n'+gpu))
+        self.nvidia_button.set_sensitive(nvidia and not driver_installed and not live)
+
+    def install_optional(self, key):
+        name=OPTIONAL_APPS[key][0]
+        extra=' This adds the third-party Flathub repository.' if key=='heroic' else ''
+        if not self.confirm('Install '+name+'?', 'Packages will be installed using CoffeeOS\'s allow-listed package setup.'+extra): return
+        argv=['pkexec','/usr/local/sbin/coffee-gaming-setup']
+        if key=='heroic': argv.append('--yes')
+        argv.append(key)
+        self.action('Install '+name,argv,lambda _rc:self.refresh_software())
+
+    def install_nvidia(self,*_):
+        if self.confirm('Install NVIDIA proprietary driver?', 'CoffeeOS will install Debian Stable nvidia-driver packages and matching kernel headers. A reboot will be required.'):
+            self.action('Install NVIDIA driver',['pkexec','/usr/local/sbin/coffee-gaming-setup','nvidia'],lambda _rc:self.refresh_software())
+
+    # Updates
+    def updates_page(self):
+        box=self.page_box(); box.pack_start(self.label('Updates', 'title'),False,False,0)
+        box.pack_start(self.label('Update the installed system in place. Debian security/base packages use Debian Stable; CoffeeOS releases can come from a signed CoffeeOS APT feed.', 'muted'),False,False,0)
+        self.update_status=self.label(''); box.pack_start(self.update_status,False,False,0)
+        self.update_feed=self.label(''); box.pack_start(self.update_feed,False,False,0)
+        buttons=Gtk.Box(spacing=8)
+        self.update_check=self.button('Check Now',self.check_updates)
+        self.update_install=self.button('Install Updates',self.install_updates,True)
+        self.update_source=self.button('Update Source',self.configure_update_feed)
+        self.update_cleanup=self.button('Clean Old Packages',self.cleanup_updates)
+        for b in (self.update_check,self.update_install,self.update_source,self.update_cleanup): buttons.pack_start(b,False,False,0)
+        box.pack_start(buttons,False,False,0)
+        self.update_list=Gtk.TextView(editable=False,cursor_visible=False,monospace=True); self.update_list.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        scroll=Gtk.ScrolledWindow(); scroll.set_min_content_height(240); scroll.add(self.update_list); box.pack_start(scroll,True,True,0)
+        return box
+
+    def refresh_updates(self):
+        live=is_live()
+        self.update_install.set_sensitive(not live); self.update_cleanup.set_sensitive(not live); self.update_source.set_sensitive(not live)
+        rc,raw=capture(['/usr/local/sbin/coffee-update','status','--json'],5)
+        try: info=json.loads(raw) if rc==0 else {}
+        except json.JSONDecodeError: info={}
+        rc,out=capture(['/usr/local/sbin/coffee-update','list'],10)
+        text=out if rc==0 and out else 'No cached upgrades are currently listed. Use Check Now to refresh package indexes.'
+        self.update_list.get_buffer().set_text(text)
+        if live:
+            self.update_status.set_text('Live session: update installation is disabled. Install CoffeeOS first.')
+        else:
+            count=info.get('upgrade_count',0); coffee=info.get('coffeeos_upgrade_count',0)
+            reboot=' · reboot required' if info.get('reboot_required') else ''
+            self.update_status.set_text(f"CoffeeOS {info.get('version','unknown')} · cached upgrades: {count} ({coffee} CoffeeOS){reboot}")
+        feed=info.get('feed_url','')
+        self.update_feed.set_text('CoffeeOS feed: '+(feed if feed else 'not configured — Debian Stable updates still work'))
+
+    def check_updates(self,*_):
+        self.action('Check for updates',['pkexec','/usr/local/sbin/coffee-update','check'],lambda _rc:self.refresh_updates())
+
+    def install_updates(self,*_):
+        if self.confirm('Install system updates?', 'Apply available Debian Stable and configured CoffeeOS updates in place? A CoffeeKernel update may require a reboot afterward.'):
+            self.action('Install updates',['pkexec','/usr/local/sbin/coffee-update','upgrade'],lambda _rc:self.refresh_updates())
+
+    def cleanup_updates(self,*_):
+        if self.confirm('Clean old packages?', 'Remove packages no longer required and clean the local APT cache?'):
+            self.action('Clean packages',['pkexec','/usr/local/sbin/coffee-update','cleanup'],lambda _rc:self.refresh_updates())
+
+    def configure_update_feed(self,*_):
+        dlg=Gtk.Dialog(title='CoffeeOS Update Source',transient_for=self,modal=True)
+        dlg.add_buttons('Cancel',Gtk.ResponseType.CANCEL,'Remove Feed',2,'Save',Gtk.ResponseType.OK)
+        area=dlg.get_content_area(); area.set_spacing(8); area.set_border_width(12)
+        area.pack_start(self.label('CoffeeOS repositories must be HTTPS (or file:// for local testing) and signed with an OpenPGP public key.', 'muted'),False,False,0)
+        grid=Gtk.Grid(column_spacing=8,row_spacing=8)
+        url=Gtk.Entry(); url.set_placeholder_text('https://updates.example.com/coffeeos')
+        suite=Gtk.Entry(); suite.set_text('stable')
+        key=Gtk.FileChooserButton(title='Select CoffeeOS repository public key',action=Gtk.FileChooserAction.OPEN)
+        grid.attach(Gtk.Label(label='Feed URL',xalign=0),0,0,1,1); grid.attach(url,1,0,1,1)
+        grid.attach(Gtk.Label(label='Channel',xalign=0),0,1,1,1); grid.attach(suite,1,1,1,1)
+        grid.attach(Gtk.Label(label='Public key',xalign=0),0,2,1,1); grid.attach(key,1,2,1,1)
+        area.pack_start(grid,False,False,0); dlg.show_all(); response=dlg.run()
+        if response==Gtk.ResponseType.OK:
+            feed=url.get_text().strip(); channel=suite.get_text().strip(); keyfile=key.get_filename()
+            dlg.destroy()
+            if not feed or not channel or not keyfile:
+                self.set_status('Feed URL, channel and public signing key are required.'); return
+            self.action('Configure CoffeeOS update source',['pkexec','/usr/local/sbin/coffee-update','set-feed',feed,channel,keyfile],lambda _rc:self.refresh_updates())
+            return
+        if response==2:
+            dlg.destroy()
+            if self.confirm('Remove CoffeeOS update source?', 'Debian Stable updates will continue, but CoffeeOS-specific releases will stop until a feed is configured.'):
+                self.action('Remove CoffeeOS update source',['pkexec','/usr/local/sbin/coffee-update','clear-feed'],lambda _rc:self.refresh_updates())
+            return
+        dlg.destroy()
+
+
+def main():
+    apply_theme_style()
+    win=CoffeeControlCenter(); win.connect('destroy',Gtk.main_quit); win.show_all(); Gtk.main()
+
+if __name__=='__main__': main()

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CoffeeOS Gaming Setup
+Comment=Install Steam, Wine, Gamescope and gaming compatibility packages
+Exec=foot -e sh -lc 'echo "CoffeeOS gaming setup"; echo; echo "Examples:"; echo "  sudo coffee-gaming-setup steam"; echo "  sudo coffee-gaming-setup full"; echo "  sudo coffee-gaming-setup nvidia"; echo; exec bash'
+Icon=applications-games
+Terminal=false
+Categories=Game;System;

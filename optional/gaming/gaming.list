@@ -1,0 +1,19 @@
+# Phase 4 optional packages/actions. Core ISO already ships GameMode, MangoHud,
+# Vulkan loader/Mesa and Steam controller udev rules.
+# Use the audited helper instead of mixing Debian suites manually:
+#   sudo coffee-gaming-setup steam
+#   sudo coffee-gaming-setup wine
+#   sudo coffee-gaming-setup gamescope
+#   sudo coffee-gaming-setup full
+#   sudo coffee-gaming-setup nvidia
+#   sudo coffee-gaming-setup heroic   # explicit third-party Flathub opt-in
+steam-installer
+wine
+wine32:i386
+wine64
+dxvk
+dxvk-wine32:i386
+dxvk-wine64
+gamescope  # from official trixie-backports only
+
+# Game launchers are intentionally excluded from this list.

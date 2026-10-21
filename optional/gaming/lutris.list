@@ -1,0 +1,5 @@
+# Optional Lutris add-on. Not part of the base image or the `full` gaming action.
+# Install explicitly with:
+#   sudo coffee-gaming-setup lutris
+lutris
+winetricks

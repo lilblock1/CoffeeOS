@@ -1,0 +1,18 @@
+[Unit]
+Description=CoffeeOS adaptive gaming performance daemon
+After=multi-user.target coffee-memory-tune.service
+ConditionPathExists=/usr/local/sbin/coffee-performance-daemon
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/coffee-performance-daemon run
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ReadWritePaths=/run/coffeeos /var/lib/coffeeos /sys/devices/system/cpu/cpufreq /proc/sys/vm
+
+[Install]
+WantedBy=multi-user.target

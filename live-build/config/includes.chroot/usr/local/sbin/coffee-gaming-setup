@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Explicit, auditable gaming package setup for installed CoffeeOS/Debian Trixie.
+# Stable repositories are used by default. Gamescope alone is installed from
+# Trixie Backports because it is not shipped in Trixie stable.
+set -Eeuo pipefail
+
+DRY_RUN=0
+YES=0
+usage() {
+  cat <<'USAGE'
+Usage: sudo coffee-gaming-setup [--dry-run] [--yes] ACTION
+
+Actions:
+  status        Show architecture/repository/GPU basics
+  steam         Enable i386 multiarch and install Steam + 32-bit Mesa/Vulkan
+  wine          Enable i386 multiarch and install Wine + DXVK (64/32-bit)
+  gamescope     Enable official Trixie Backports and install Gamescope
+  full          Install Steam, Wine/DXVK and Gamescope (no game launchers)
+  lutris        Optional: install Lutris + Winetricks
+  nvidia        Install Debian stable NVIDIA proprietary driver (explicit only)
+  heroic        Install Flatpak + Heroic from Flathub (third-party; confirmation)
+USAGE
+}
+
+while (( $# )); do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --yes|-y) YES=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) break ;;
+  esac
+done
+ACTION=${1:-}
+[[ -n "$ACTION" ]] || { usage; exit 2; }
+
+run() {
+  if (( DRY_RUN )); then printf '+ '; printf '%q ' "$@"; printf '\n'; else "$@"; fi
+}
+need_root() {
+  if (( DRY_RUN == 0 && EUID != 0 )); then
+    echo 'coffee-gaming-setup: root required (use sudo), or use --dry-run.' >&2
+    exit 2
+  fi
+}
+check_os() {
+  [[ -r /etc/os-release ]] || { echo 'Cannot identify OS.' >&2; exit 3; }
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  [[ ${VERSION_CODENAME:-} == trixie ]] || { echo 'This setup targets Debian 13 Trixie only.' >&2; exit 3; }
+  case " ${ID:-} ${ID_LIKE:-} " in *debian*|*coffeeos*) ;; *) echo 'Expected CoffeeOS/Debian.' >&2; exit 3;; esac
+}
+is_live() { grep -qw boot=live /proc/cmdline 2>/dev/null; }
+apt_update() { run apt-get update; }
+enable_i386() {
+  if ! dpkg --print-foreign-architectures 2>/dev/null | grep -qx i386; then
+    run dpkg --add-architecture i386
+    apt_update
+  elif (( DRY_RUN )); then
+    echo '# i386 multiarch already enabled (or dry-run cannot alter it)'
+  fi
+}
+install_stable() { run apt-get install -y --no-install-recommends "$@"; }
+ensure_backports() {
+  local file=/etc/apt/sources.list.d/coffeeos-trixie-backports.sources
+  if [[ ! -e $file ]]; then
+    if (( DRY_RUN )); then
+      echo "+ write $file (official Debian trixie-backports, signed by Debian archive keyring)"
+    else
+      cat > "$file" <<'SRC'
+Types: deb
+URIs: https://deb.debian.org/debian
+Suites: trixie-backports
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+SRC
+      chmod 0644 "$file"
+    fi
+    apt_update
+  fi
+}
+install_steam() {
+  enable_i386
+  install_stable steam-installer steam-devices \
+    libvulkan1:i386 mesa-vulkan-drivers:i386 libgl1-mesa-dri:i386 libglx-mesa0:i386 \
+    libgamemode0:i386
+}
+install_wine() {
+  enable_i386
+  install_stable wine wine32:i386 wine64 dxvk dxvk-wine64 dxvk-wine32:i386
+}
+install_gamescope() {
+  ensure_backports
+  run apt-get install -y --no-install-recommends -t trixie-backports gamescope
+}
+install_lutris() { install_stable lutris winetricks; }
+install_nvidia() {
+  if is_live; then
+    echo 'NVIDIA proprietary driver installation is intentionally blocked in the disposable live session.' >&2
+    echo 'Install CoffeeOS first, boot the installed system, then run this action.' >&2
+    exit 4
+  fi
+  if command -v lspci >/dev/null 2>&1 && ! lspci -nn | grep -Eqi 'NVIDIA.*(VGA|3D|Display)|(?:VGA|3D|Display).*NVIDIA'; then
+    echo 'No NVIDIA display controller detected; refusing automatic driver install.' >&2
+    exit 4
+  fi
+  local k="$(uname -r)"
+  if [[ ! -e /lib/modules/$k/build ]]; then
+    run apt-get install -y --no-install-recommends "linux-headers-$k" || {
+      echo "Matching headers for $k are required. Install CoffeeKernel headers first if using CoffeeKernel." >&2
+      exit 5
+    }
+  fi
+  install_stable nvidia-driver nvidia-settings
+  echo 'NVIDIA packages installed. Reboot before judging driver status.'
+}
+confirm_third_party() {
+  (( YES )) && return 0
+  [[ -t 0 ]] || { echo 'Third-party install requires --yes in non-interactive mode.' >&2; exit 6; }
+  read -r -p 'This adds Flathub, a third-party repository, and installs Heroic. Continue? [y/N] ' answer
+  [[ $answer == [Yy]* ]] || { echo 'Cancelled.'; exit 0; }
+}
+install_heroic() {
+  confirm_third_party
+  install_stable flatpak
+  if (( DRY_RUN )); then
+    echo '+ flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo'
+    echo '+ flatpak install -y flathub com.heroicgameslauncher.hgl'
+  else
+    flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.heroicgameslauncher.hgl
+  fi
+}
+status() {
+  echo "Architecture: $(dpkg --print-architecture 2>/dev/null || uname -m)"
+  echo "Foreign architectures: $(dpkg --print-foreign-architectures 2>/dev/null | tr '\n' ' ' || true)"
+  echo "Live session: $(is_live && echo yes || echo no)"
+  if command -v lspci >/dev/null 2>&1; then
+    lspci -nnk | grep -EA3 'VGA compatible controller|3D controller|Display controller' || true
+  fi
+}
+
+check_os
+case "$ACTION" in
+  status) status ;;
+  steam) need_root; install_steam ;;
+  wine) need_root; install_wine ;;
+  gamescope) need_root; install_gamescope ;;
+  lutris) need_root; install_lutris ;;
+  full) need_root; install_steam; install_wine; install_gamescope ;;
+  nvidia) need_root; install_nvidia ;;
+  heroic) need_root; install_heroic ;;
+  *) usage; exit 2 ;;
+esac

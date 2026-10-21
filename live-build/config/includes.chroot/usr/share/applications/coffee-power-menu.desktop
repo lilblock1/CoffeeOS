@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Coffee Power Menu
+Comment=Log out, restart, or power off
+Exec=coffee-power-menu
+Terminal=false
+Type=Application
+Icon=system-shutdown
+Categories=System;

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Compatibility entry point retained for older Coffee Control Center versions.
+set -Eeuo pipefail
+case "${1:-}" in
+  list) exec /usr/local/sbin/coffee-update list ;;
+  check) exec /usr/local/sbin/coffee-update check ;;
+  upgrade) exec /usr/local/sbin/coffee-update upgrade ;;
+  cleanup) exec /usr/local/sbin/coffee-update cleanup ;;
+  *) echo 'Usage: coffee-system-update {list|check|upgrade|cleanup}' >&2; exit 2 ;;
+esac

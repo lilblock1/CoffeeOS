@@ -1,0 +1,11 @@
+[Unit]
+Description=CoffeeOS boot smoke-test marker
+After=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'if [ -c /dev/ttyS0 ]; then printf "COFFEEOS_BOOT_OK\\n" > /dev/ttyS0; fi'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

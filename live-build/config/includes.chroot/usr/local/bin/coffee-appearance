@@ -1,0 +1,356 @@
+#!/usr/bin/env python3
+"""Coffee Desktop appearance/theme manager.
+
+CoffeeOS themes are complete presets: labwc, Waybar, Fuzzel, Mako, Foot,
+GTK3/GTK4, Control Center, Quick Settings and a matching wallpaper.
+All writes are confined to the invoking user's configuration directories.
+"""
+from __future__ import annotations
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
+
+THEMES = {
+    'espresso-noir': dict(
+        label='Espresso Noir', dark=True, labwc='CoffeeOS-Espresso-Noir',
+        wallpaper='/usr/share/backgrounds/coffeeos/espresso-noir.svg',
+        bg='#140e0c', surface='#271915', surface2='#39231c', accent='#d89a5b',
+        accent2='#f2c28d', text='#f8eee5', muted='#c0aa9a', border='#62402f',
+        select='#5b3525', button='#39241d', hover='#523426',
+        launch_bg='140e0cf5', launch_text='f8eee5ff', launch_accent='d89a5bff',
+        launch_select='5b3525ff', terminal_bg='120c0a', terminal_fg='f8eee5'),
+    'latte-cream': dict(
+        label='Latte Cream', dark=False, labwc='CoffeeOS-Latte-Cream',
+        wallpaper='/usr/share/backgrounds/coffeeos/latte-cream.svg',
+        bg='#efe1cc', surface='#fff7e9', surface2='#e0c5a5', accent='#8b5634',
+        accent2='#b97545', text='#3a281f', muted='#786153', border='#b8906d',
+        select='#d9bea1', button='#e6d3bb', hover='#d5bb9e',
+        launch_bg='efe1ccf8', launch_text='3a281fff', launch_accent='8b5634ff',
+        launch_select='d9bea1ff', terminal_bg='f6ead8', terminal_fg='3a281f'),
+    'caramel-sunrise': dict(
+        label='Caramel Sunrise', dark=True, labwc='CoffeeOS-Caramel-Sunrise',
+        wallpaper='/usr/share/backgrounds/coffeeos/caramel-sunrise.svg',
+        bg='#26150d', surface='#402116', surface2='#5a2f18', accent='#ffad4f',
+        accent2='#ffd08b', text='#fff2df', muted='#d7b397', border='#8a5230',
+        select='#70401f', button='#4d2918', hover='#6b3a1d',
+        launch_bg='26150df5', launch_text='fff2dfff', launch_accent='ffad4fff',
+        launch_select='70401fff', terminal_bg='1f100a', terminal_fg='fff2df'),
+    'mocha-night': dict(
+        label='Mocha Night', dark=True, labwc='CoffeeOS-Mocha-Night',
+        wallpaper='/usr/share/backgrounds/coffeeos/mocha-night.svg',
+        bg='#0f0c0d', surface='#21171a', surface2='#332126', accent='#c78667',
+        accent2='#e2ad8f', text='#f2e7e3', muted='#b9a5a5', border='#594047',
+        select='#4a2d35', button='#2c1c21', hover='#40272f',
+        launch_bg='0f0c0df7', launch_text='f2e7e3ff', launch_accent='c78667ff',
+        launch_select='4a2d35ff', terminal_bg='0c090a', terminal_fg='f2e7e3'),
+    'hazelnut-mist': dict(
+        label='Hazelnut Mist', dark=False, labwc='CoffeeOS-Hazelnut-Mist',
+        wallpaper='/usr/share/backgrounds/coffeeos/hazelnut-mist.svg',
+        bg='#d9c2a4', surface='#f5e7d4', surface2='#caaa85', accent='#795035',
+        accent2='#a47250', text='#35251e', muted='#6f5b4d', border='#a78361',
+        select='#c8aa87', button='#dfcbb2', hover='#cfb293',
+        launch_bg='d9c2a4f8', launch_text='35251eff', launch_accent='795035ff',
+        launch_select='c8aa87ff', terminal_bg='ead9c3', terminal_fg='35251e'),
+    'macchiato-glow': dict(
+        label='Macchiato Glow', dark=True, labwc='CoffeeOS-Macchiato-Glow',
+        wallpaper='/usr/share/backgrounds/coffeeos/macchiato-glow.svg',
+        bg='#211611', surface='#38241c', surface2='#533327', accent='#edbd82',
+        accent2='#ffd9a8', text='#fff3e6', muted='#cdb8a6', border='#7b553d',
+        select='#65412f', button='#432b21', hover='#5e3b2b',
+        launch_bg='211611f5', launch_text='fff3e6ff', launch_accent='edbd82ff',
+        launch_select='65412fff', terminal_bg='1b110d', terminal_fg='fff3e6'),
+}
+ALIASES = {'espresso': 'espresso-noir', 'latte': 'latte-cream'}
+DEFAULTS = {'theme': 'espresso-noir', 'effects': True}
+
+
+def config_home():
+    return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
+
+
+def state_path():
+    return config_home() / 'coffeeos' / 'appearance.json'
+
+
+def normalize_theme(name):
+    return ALIASES.get(name, name)
+
+
+def read_state():
+    state = DEFAULTS.copy()
+    try:
+        stored = json.loads(state_path().read_text(encoding='utf-8'))
+        if isinstance(stored, dict):
+            candidate = normalize_theme(stored.get('theme'))
+            if candidate in THEMES:
+                state['theme'] = candidate
+            if isinstance(stored.get('effects'), bool):
+                state['effects'] = stored['effects']
+    except (OSError, ValueError, TypeError):
+        pass
+    return state
+
+
+def atomic_text(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = None
+    try:
+        with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=path.parent,
+                                         prefix='.coffee-', delete=False) as output:
+            temp = Path(output.name)
+            output.write(text)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temp, 0o600)
+        os.replace(temp, path)
+    finally:
+        if temp is not None:
+            temp.unlink(missing_ok=True)
+
+
+def gtk_css(p):
+    selection_text = '#fffaf3' if p['dark'] else '#fffaf3'
+    return '''/* Generated by CoffeeOS. */
+@define-color theme_bg_color {bg};
+@define-color theme_fg_color {text};
+@define-color theme_surface_color {surface};
+@define-color theme_surface_alt_color {surface2};
+@define-color theme_accent_color {accent};
+@define-color theme_border_color {border};
+@define-color theme_muted_color {muted};
+window, dialog, .background {{ background-color: @theme_bg_color; color: @theme_fg_color; }}
+headerbar {{ background-image: none; background-color: @theme_surface_color; color: @theme_fg_color; border-bottom: 1px solid @theme_border_color; box-shadow: none; }}
+headerbar button, button {{ background-image: none; background-color: {button}; color: @theme_fg_color; border: 1px solid @theme_border_color; border-radius: 8px; }}
+button:hover {{ background-color: {hover}; }}
+button:checked, button.suggested-action {{ background-color: @theme_accent_color; color: {selection_text}; }}
+entry, spinbutton, textview text, treeview.view, list, row, .view {{ background-color: @theme_surface_color; color: @theme_fg_color; }}
+entry:focus {{ border-color: @theme_accent_color; }}
+selection {{ background-color: @theme_accent_color; color: {selection_text}; }}
+menu, .menu, popover, popover.background, notebook > header, sidebar, .sidebar {{ background-color: @theme_surface_color; color: @theme_fg_color; }}
+separator {{ background-color: @theme_border_color; }}
+*:disabled {{ color: @theme_muted_color; }}
+'''.format(**p, selection_text=selection_text)
+
+
+def app_css(p, root_class):
+    return '''window.{root} {{ background: {bg}; color: {text}; }}
+.{root} label {{ color: {text}; }}
+.{root} .title, .{root} .heading, .{root} .section {{ color: {accent}; font-weight: bold; }}
+.{root} .title, .{root} .heading {{ font-size: 22px; }}
+.{root} .muted, .{root} .hint {{ color: {muted}; }}
+.{root} button {{ background-image: none; background: {button}; color: {text}; border: 1px solid {border}; border-radius: 8px; padding: 8px 12px; }}
+.{root} button:hover {{ background: {hover}; }}
+.{root} button.suggested-action, .{root} switch:checked {{ background: {accent}; color: {selection_text}; }}
+.{root} frame {{ border-color: {border}; border-radius: 10px; }}
+.{root} textview, .{root} textview text {{ background: {surface}; color: {text}; }}
+.{root} stacksidebar row:selected {{ background: {surface2}; color: {text}; }}
+.{root} switch {{ background: {surface2}; }}
+'''.format(root=root_class, selection_text='#fffaf3', **p)
+
+
+def color_config(state):
+    p = THEMES[state['theme']]
+    css = '''/* Generated by coffee-appearance. */
+@define-color bg {bg};
+@define-color surface {surface};
+@define-color accent {accent};
+@define-color text {text};
+@define-color muted {muted};
+* {{ font-family: "Cantarell", "Noto Sans", sans-serif; font-size: 12px; border: none; min-height: 0; }}
+window#waybar {{ background: alpha(@bg, 0.96); color: @text; border: 1px solid {border}; border-radius: 13px; }}
+#custom-coffee {{ color: @accent; font-size: 13px; font-weight: bold; padding: 0 14px; }}
+#clock {{ font-weight: bold; }}
+#cpu, #memory, #network, #pulseaudio, #battery, #tray, #clock, #custom-quicksettings, #custom-power, #custom-updates {{ padding: 0 9px; }}
+#taskbar button {{ color: @muted; border-radius: 8px; margin: 4px 2px; padding: 0 9px; }}
+#taskbar button.active {{ background: @surface; color: @accent; }}
+#custom-quicksettings, #custom-power, #custom-updates {{ font-size: 16px; color: @accent; }}
+#custom-power {{ padding-right: 14px; }}
+'''.format(**p)
+    if state['effects']:
+        css += '#custom-coffee, #custom-power, #custom-quicksettings, #custom-updates { transition: background-color 120ms ease; }\n'
+    fuzzel = '''[main]
+font=Cantarell:size=12
+terminal=foot
+prompt=CoffeeOS > 
+width=46
+lines=9
+horizontal-pad=22
+vertical-pad=18
+inner-pad=10
+icons-enabled=yes
+icon-theme=Adwaita
+
+[colors]
+background={launch_bg}
+text={launch_text}
+match={launch_accent}
+selection={launch_select}
+selection-text={launch_text}
+border={launch_accent}
+
+[border]
+width=2
+radius=12
+'''.format(**p)
+    mako = '''sort=-time
+layer=overlay
+anchor=top-right
+max-visible=4
+background-color={bg}
+text-color={text}
+border-color={accent}
+border-size=2
+border-radius=12
+padding=14
+margin=14
+font=Cantarell 11
+default-timeout=6000
+ignore-timeout=0
+
+[mode=gaming]
+invisible=1
+'''.format(**p)
+    foot = '''[main]
+font=monospace:size=10
+pad=10x9
+
+[colors]
+alpha=0.97
+foreground={terminal_fg}
+background={terminal_bg}
+regular0={terminal_bg}
+regular1=cc7665
+regular2=8dad82
+regular3=d6a35f
+regular4=8fa9c9
+regular5=bd8ca6
+regular6=83b8af
+regular7=dccbbb
+bright0=78635b
+bright1=f49a82
+bright2=b5d7a3
+bright3=f0c57f
+bright4=bad1f4
+bright5=d7b1c5
+bright6=abe3d8
+bright7=fff8ef
+'''.format(**p)
+    gtk_settings = '''[Settings]
+gtk-theme-name=Adwaita
+gtk-icon-theme-name=Adwaita
+gtk-font-name=Cantarell 11
+gtk-application-prefer-dark-theme={dark}
+gtk-enable-animations={effects}
+'''.format(dark=1 if p['dark'] else 0, effects=1 if state['effects'] else 0)
+    return {
+        'waybar/style.css': css,
+        'fuzzel/fuzzel.ini': fuzzel,
+        'mako/config': mako,
+        'foot/foot.ini': foot,
+        'gtk-3.0/settings.ini': gtk_settings,
+        'gtk-3.0/gtk.css': gtk_css(p),
+        'gtk-4.0/settings.ini': gtk_settings,
+        'gtk-4.0/gtk.css': gtk_css(p),
+        'coffeeos/control-center.css': app_css(p, 'coffee-control'),
+        'coffeeos/quick-settings.css': app_css(p, 'coffee'),
+    }
+
+
+def update_labwc_rc(state):
+    dest = config_home() / 'labwc' / 'rc.xml'
+    base = Path(os.environ.get('COFFEE_LABWC_TEMPLATE', '/etc/xdg/labwc/rc.xml'))
+    if not dest.exists() and not base.exists():
+        raise RuntimeError('labwc template is missing')
+    document = ET.parse(dest if dest.exists() else base)
+    root = document.getroot()
+    theme = root.find('theme')
+    if theme is None:
+        theme = ET.SubElement(root, 'theme')
+    name = theme.find('name')
+    if name is None:
+        name = ET.SubElement(theme, 'name')
+    name.text = THEMES[state['theme']]['labwc']
+    setting = theme.find('dropShadows')
+    if setting is None:
+        setting = ET.SubElement(theme, 'dropShadows')
+    setting.text = 'yes' if state['effects'] else 'no'
+    ET.indent(document, space='  ')
+    xml = ET.tostring(root, encoding='unicode')
+    atomic_text(dest, '<?xml version="1.0" encoding="UTF-8"?>\n' + xml + '\n')
+
+
+def restart_wallpaper():
+    if os.environ.get('COFFEE_NO_RELOAD') == '1':
+        return
+    if shutil.which('pkill'):
+        subprocess.run(('pkill', '-x', 'swaybg'), check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+    if shutil.which('coffee-wallpaper'):
+        subprocess.Popen(('coffee-wallpaper',), start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def apply(state, reload=True, reset_wallpaper=False):
+    if state['theme'] not in THEMES or not isinstance(state['effects'], bool):
+        raise ValueError('Invalid appearance state')
+    for relative, content in color_config(state).items():
+        atomic_text(config_home() / relative, content)
+    update_labwc_rc(state)
+    atomic_text(state_path(), json.dumps(state, indent=2) + '\n')
+    atomic_text(config_home() / 'coffeeos' / 'theme', state['theme'] + '\n')
+    if reset_wallpaper:
+        (config_home() / 'coffeeos' / 'wallpaper').unlink(missing_ok=True)
+    if reload and os.environ.get('COFFEE_NO_RELOAD') != '1':
+        for cmd in (('labwc', '--reconfigure'), ('makoctl', 'reload'), ('pkill', '-USR2', '-x', 'waybar')):
+            if shutil.which(cmd[0]):
+                subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=3)
+        if reset_wallpaper:
+            restart_wallpaper()
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Coffee Desktop complete coffee-themed presets')
+    sub = parser.add_subparsers(dest='action', required=True)
+    sub.add_parser('show')
+    sub.add_parser('list')
+    sub.add_parser('refresh')
+    sub.add_parser('reset')
+    sub.add_parser('theme').add_argument('name', choices=sorted(set(THEMES) | set(ALIASES)))
+    sub.add_parser('effects').add_argument('setting', choices=('on', 'off'))
+    args = parser.parse_args()
+    state = read_state()
+    try:
+        if args.action == 'show':
+            print(json.dumps(state, indent=2))
+            return 0
+        if args.action == 'list':
+            for key, value in THEMES.items():
+                print(f"{key}\t{value['label']}\t{value['wallpaper']}")
+            return 0
+        reset_wallpaper = False
+        if args.action == 'theme':
+            state['theme'] = normalize_theme(args.name)
+            # A complete CoffeeOS theme includes its wallpaper. A user can choose
+            # another wallpaper afterwards from Control Center.
+            reset_wallpaper = True
+        elif args.action == 'effects':
+            state['effects'] = args.setting == 'on'
+        elif args.action == 'reset':
+            state = DEFAULTS.copy()
+            reset_wallpaper = True
+        apply(state, reset_wallpaper=reset_wallpaper)
+        print(f"Coffee Desktop: {THEMES[state['theme']]['label']} · effects {'on' if state['effects'] else 'off'}")
+        return 0
+    except (OSError, ValueError, RuntimeError, ET.ParseError, subprocess.TimeoutExpired) as exc:
+        print(f'coffee-appearance: {exc}', file=sys.stderr)
+        return 1
+
+if __name__ == '__main__':
+    sys.exit(main())
