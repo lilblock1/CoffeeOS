@@ -36,3 +36,15 @@ or silently add Debian Testing/Unstable repositories.
 
 Open it from the application launcher, click the Waybar gear, or press **Super+C**.
 The original compact Quick Settings remains on **Super+S**.
+
+
+## Display, Bluetooth and audio
+
+Coffee Control Center includes native lightweight pages for:
+- Display resolution, refresh rate, scale, rotation and multi-monitor position using `wlr-randr`. Applied display settings are restored on later logins.
+- Bluetooth power, discovery, pairing, connection and disconnection using BlueZ. Blueman remains available for pairing workflows that require a PIN.
+- PipeWire output/input selection, speaker and microphone volume, and mute controls. Pavucontrol remains available as the advanced mixer.
+
+## First-boot welcome
+
+Installed CoffeeOS sessions show `coffee-first-boot` on the first desktop login only. The live ISO skips it. The welcome screen links directly to Display, Audio, Bluetooth, Updates and Software & Drivers pages and records completion in the user's CoffeeOS config directory.

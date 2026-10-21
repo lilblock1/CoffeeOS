@@ -259,6 +259,7 @@ gtk-enable-animations={effects}
         'gtk-4.0/gtk.css': gtk_css(p),
         'coffeeos/control-center.css': app_css(p, 'coffee-control'),
         'coffeeos/wifi-menu.css': app_css(p, 'coffee-wifi'),
+        'coffeeos/welcome.css': app_css(p, 'coffee-welcome'),
     }
 
 

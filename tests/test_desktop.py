@@ -48,8 +48,9 @@ class TestDesktopConfig(unittest.TestCase):
             self.assertIn('window.active.border.color',theme)
             self.assertIn('window.active.shadow.size',theme)
         autostart=(CHROOT/'etc/xdg/labwc/autostart').read_text()
-        for name in ('coffee-wallpaper', 'waybar', 'mako'):
+        for name in ('coffee-wallpaper', 'waybar', 'mako', 'coffee-hardware-settings display-restore', 'coffee-first-boot'):
             self.assertIn(name,autostart)
+        self.assertNotIn('coffee-quick-settings', (CHROOT/'etc/xdg/labwc/rc.xml').read_text())
 
     def test_panel_launcher_notifications_and_packages(self):
         bar=json.loads((CHROOT/'etc/xdg/waybar/config.jsonc').read_text())
@@ -88,7 +89,7 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_python_files_compile_without_gui(self):
         import ast
-        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance'):
+        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot'):
             ast.parse((BIN/name).read_text())
 
 class TestDesktopAppearance(unittest.TestCase):
@@ -127,6 +128,7 @@ class TestDesktopAppearance(unittest.TestCase):
         self.assertTrue((self.home/'foot/foot.ini').exists())
         self.assertTrue((self.home/'coffeeos/control-center.css').exists())
         self.assertTrue((self.home/'coffeeos/wifi-menu.css').exists())
+        self.assertTrue((self.home/'coffeeos/welcome.css').exists())
         self.assertEqual(ET.parse(self.home/'labwc/rc.xml').findtext('theme/name'),'CoffeeOS-Latte-Cream')
 
     def test_effects_off_preserves_keybinds(self):

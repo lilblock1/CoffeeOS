@@ -1,10 +1,10 @@
 [Desktop Entry]
 Name=Coffee Control Center
-Comment=Manage CoffeeOS performance, gaming, appearance, software, drivers and updates
+Comment=Manage CoffeeOS display, Bluetooth, audio, performance, appearance, software and updates
 Exec=coffee-control-center
 Terminal=false
 Type=Application
 Icon=coffeeos
 Categories=Settings;System;
-Keywords=performance;gaming;drivers;updates;appearance;settings;
+Keywords=display;bluetooth;audio;sound;performance;gaming;drivers;updates;appearance;settings;
 StartupNotify=true

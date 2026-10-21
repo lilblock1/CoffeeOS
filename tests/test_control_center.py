@@ -11,15 +11,18 @@ SBIN=INC/'usr/local/sbin'
 class TestControlCenterIntegration(unittest.TestCase):
     def test_control_center_is_real_frontend(self):
         text=(BIN/'coffee-control-center').read_text()
-        for title in ('Overview','Performance','Gaming','Appearance','Software & Drivers','Updates'):
+        for title in ('Overview','Display','Bluetooth','Audio','Performance','Gaming','Appearance','Software & Drivers','Updates'):
             self.assertIn(title,text)
-        for backend in ('coffee-kernel-profile','coffee-gaming-setup','coffee-update','coffee-appearance'):
+        for backend in ('coffee-kernel-profile','coffee-gaming-setup','coffee-update','coffee-appearance','coffee-hardware-settings'):
             self.assertIn(backend,text)
         self.assertIn("['pkexec'",text)
         self.assertNotIn('shell=True',text)
         self.assertNotIn('os.system(',text)
         pkgs=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
         self.assertIn('pkexec',pkgs)
+        self.assertIn('wlr-randr',pkgs)
+        self.assertIn('pulseaudio-utils',pkgs)
+        self.assertIn('bluez',pkgs)
 
     def test_desktop_and_panel_integration(self):
         desktop=(INC/'usr/share/applications/coffee-control-center.desktop').read_text()
@@ -34,6 +37,13 @@ class TestControlCenterIntegration(unittest.TestCase):
         self.assertIn("'nmcli'",wifi)
         self.assertIn('nm-connection-editor',wifi)
         self.assertNotIn('shell=True',wifi)
+        hardware=(BIN/'coffee-hardware-settings').read_text()
+        welcome=(BIN/'coffee-first-boot').read_text()
+        for tool in ('wlr-randr','bluetoothctl','pactl','wpctl'):
+            self.assertIn(tool,hardware)
+        self.assertNotIn('shell=True',hardware)
+        self.assertIn("--page',page",welcome.replace(' ',''))
+        self.assertIn('welcome-complete',welcome)
 
     def test_update_backend_is_allow_listed_and_live_safe(self):
         text=(SBIN/'coffee-update').read_text()
@@ -49,7 +59,7 @@ class TestControlCenterIntegration(unittest.TestCase):
 
     def test_phase5_iso_verifier_exists(self):
         verify=(ROOT/'scripts/verify-control-center-image.sh').read_text()
-        for path in ('/usr/local/bin/coffee-control-center','/usr/local/bin/coffee-gaming-preferences',
+        for path in ('/usr/local/bin/coffee-control-center','/usr/local/bin/coffee-hardware-settings','/usr/local/bin/coffee-first-boot','/usr/local/bin/coffee-gaming-preferences',
                      '/usr/local/sbin/coffee-update','/usr/share/applications/coffee-control-center.desktop'):
             self.assertIn(path,verify)
         main=(ROOT/'scripts/verify-iso.sh').read_text()

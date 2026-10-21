@@ -17,10 +17,13 @@ else
 fi
 for path in \
   /usr/local/bin/coffee-control-center \
+  /usr/local/bin/coffee-hardware-settings \
+  /usr/local/bin/coffee-first-boot \
   /usr/local/bin/coffee-gaming-preferences \
   /usr/local/sbin/coffee-system-update \
   /usr/local/sbin/coffee-update \
-  /usr/share/applications/coffee-control-center.desktop; do
+  /usr/share/applications/coffee-control-center.desktop \
+  /usr/share/applications/coffee-welcome.desktop; do
   grep -Fq "$path" <<<"$listing" || { echo "ERROR: Phase 5 payload missing: $path" >&2; exit 5; }
 done
 echo 'Phase 5 Coffee Control Center payload verified inside SquashFS.'
