@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Small allow-listed Flatpak permission backend for CoffeeOS."""
+from __future__ import annotations
+import argparse,configparser,io,json,re,shutil,subprocess
+
+def cap(argv,t=12):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=t,check=False)
+        return p.returncode,p.stdout.strip()
+    except (OSError,subprocess.TimeoutExpired) as exc:return 127,str(exc)
+
+def available():return shutil.which('flatpak') is not None
+
+def apps():
+    if not available():return {'available':False,'apps':[]}
+    rc,out=cap(['flatpak','list','--app','--columns=application,name,origin'])
+    rows=[]
+    if rc==0:
+        for line in out.splitlines():
+            parts=line.split('\t')
+            if parts and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]+',parts[0]):
+                rows.append({'id':parts[0],'name':parts[1] if len(parts)>1 and parts[1] else parts[0],'origin':parts[2] if len(parts)>2 else ''})
+    return {'available':True,'apps':rows}
+
+def known(app):
+    return any(x['id']==app for x in apps()['apps'])
+
+def permissions(app):
+    if not known(app):raise SystemExit('Unknown Flatpak application.')
+    rc,out=cap(['flatpak','info','--show-permissions',app])
+    if rc:raise SystemExit(out)
+    cp=configparser.ConfigParser(interpolation=None,strict=False)
+    cp.read_file(io.StringIO(out))
+    ctx=cp['Context'] if cp.has_section('Context') else {}
+    def vals(key):
+        value=ctx.get(key,'') if hasattr(ctx,'get') else ''
+        return {x for x in value.split(';') if x}
+    shared=vals('shared');sockets=vals('sockets');devices=vals('devices');files=vals('filesystems')
+    print(json.dumps({'app':app,'network':'network' in shared,'audio':'pulseaudio' in sockets,
+      'gpu':'dri' in devices or 'all' in devices,'home':'home' in files or 'host' in files,
+      'raw':out},indent=2))
+
+def set_perm(app,name,state):
+    if not known(app):raise SystemExit('Unknown Flatpak application.')
+    if name=='network':flag='--share=network' if state else '--unshare=network'
+    elif name=='audio':flag='--socket=pulseaudio' if state else '--nosocket=pulseaudio'
+    elif name=='gpu':flag='--device=dri' if state else '--nodevice=dri'
+    elif name=='home':flag='--filesystem=home' if state else '--nofilesystem=home'
+    else:raise SystemExit('Unsupported permission.')
+    rc,out=cap(['flatpak','override','--user',flag,app])
+    if rc:raise SystemExit(out)
+    print(f'{app}: {name} '+('allowed' if state else 'blocked'))
+
+def reset(app):
+    if not known(app):raise SystemExit('Unknown Flatpak application.')
+    rc,out=cap(['flatpak','override','--user','--reset',app])
+    if rc:raise SystemExit(out)
+    print('User permission overrides reset for '+app)
+
+def main():
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);sp.add_parser('list')
+    p=sp.add_parser('show');p.add_argument('app')
+    p=sp.add_parser('set');p.add_argument('app');p.add_argument('permission',choices=('network','audio','gpu','home'));p.add_argument('state',choices=('on','off'))
+    p=sp.add_parser('reset');p.add_argument('app')
+    a=ap.parse_args()
+    if a.cmd=='list':print(json.dumps(apps(),indent=2))
+    elif a.cmd=='show':permissions(a.app)
+    elif a.cmd=='set':set_perm(a.app,a.permission,a.state=='on')
+    else:reset(a.app)
+if __name__=='__main__':main()

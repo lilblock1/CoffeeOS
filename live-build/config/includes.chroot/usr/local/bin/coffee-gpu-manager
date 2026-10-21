@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""CoffeeOS multi-GPU preference manager.
+
+This changes session-level rendering preference only. It does not disable PCI
+devices, unload drivers or change firmware muxes.
+"""
+from __future__ import annotations
+import argparse,json,os,re,subprocess
+from pathlib import Path
+
+def cfg(): return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'coffeeos'/'gpu-mode'
+
+def cap(argv,t=8):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=t,check=False)
+        return p.returncode,p.stdout.strip()
+    except (OSError,subprocess.TimeoutExpired) as exc:return 127,str(exc)
+
+def gpus():
+    rc,out=cap(['lspci','-nnk'])
+    if rc:return []
+    items=[]; cur=None
+    for line in out.splitlines():
+        if any(x in line for x in ('VGA compatible controller','3D controller','Display controller')):
+            cur={'device':line.strip(),'driver':'','vendor':'unknown'}
+            low=line.lower()
+            if 'nvidia' in low:cur['vendor']='nvidia'
+            elif 'amd' in low or 'ati ' in low:cur['vendor']='amd'
+            elif 'intel' in low:cur['vendor']='intel'
+            items.append(cur)
+        elif cur and 'Kernel driver in use:' in line:cur['driver']=line.split(':',1)[1].strip()
+        elif line and not line[0].isspace():cur=None
+    return items
+
+def mode():
+    try:m=cfg().read_text().strip()
+    except OSError:m='hybrid'
+    return m if m in ('hybrid','integrated','discrete') else 'hybrid'
+
+def status():
+    items=gpus()
+    print(json.dumps({'gpus':items,'multi_gpu':len(items)>1,'mode':mode(),
+      'switcheroo_available':subprocess.run(['sh','-c','command -v switcherooctl >/dev/null'],check=False).returncode==0,
+      'requires_new_session':True},indent=2))
+
+def set_mode(value):
+    items=gpus()
+    if len(items)<2:raise SystemExit('GPU switching is available only when two or more GPUs are detected.')
+    if value not in ('hybrid','integrated','discrete'):raise SystemExit('Invalid GPU mode.')
+    p=cfg();p.parent.mkdir(parents=True,exist_ok=True);p.write_text(value+'\n');os.chmod(p,0o600)
+    print('GPU preference set to '+value+'. Log out and back in to apply it.')
+
+def main():
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);sp.add_parser('status')
+    p=sp.add_parser('set');p.add_argument('mode',choices=('hybrid','integrated','discrete'))
+    a=ap.parse_args()
+    if a.cmd=='status':status()
+    else:set_mode(a.mode)
+if __name__=='__main__':main()

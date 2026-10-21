@@ -34,7 +34,7 @@ Section: admin
 Priority: optional
 Architecture: $ARCH
 Maintainer: CoffeeOS Community
-Depends: bash, python3, apt, ca-certificates, gnupg, curl, systemd, plymouth, plymouth-themes
+Depends: bash, python3, apt, ca-certificates, gnupg, curl, systemd, plymouth, plymouth-themes, switcheroo-control, joystick, jstest-gtk
 Description: CoffeeOS desktop, updater, profiles and system integration
  Updatable CoffeeOS-owned files. Debian base packages remain managed by APT.
 CTRL

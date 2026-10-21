@@ -25,6 +25,25 @@ case "$vendor" in
     force_software=1 ;;
 esac
 
+# Apply CoffeeOS multi-GPU preference at session start. This is deliberately
+# limited to render-offload environment variables; CoffeeOS does not disable
+# devices or unload GPU drivers.
+gpu_mode_file="${XDG_CONFIG_HOME:-$HOME/.config}/coffeeos/gpu-mode"
+gpu_mode=hybrid
+[ -r "$gpu_mode_file" ] && gpu_mode="$(cat "$gpu_mode_file" 2>/dev/null || printf hybrid)"
+case "$gpu_mode" in
+  integrated)
+    export DRI_PRIME=0
+    unset __NV_PRIME_RENDER_OFFLOAD __GLX_VENDOR_LIBRARY_NAME 2>/dev/null || true
+    ;;
+  discrete)
+    export DRI_PRIME=1
+    export __NV_PRIME_RENDER_OFFLOAD=1
+    export __GLX_VENDOR_LIBRARY_NAME=nvidia
+    ;;
+  *) unset DRI_PRIME __NV_PRIME_RENDER_OFFLOAD __GLX_VENDOR_LIBRARY_NAME 2>/dev/null || true ;;
+esac
+
 if [ "${COFFEE_FORCE_SOFTWARE_RENDERING:-0}" = 1 ]; then
   force_software=1
 fi

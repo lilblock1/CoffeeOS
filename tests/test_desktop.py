@@ -99,6 +99,16 @@ class TestDesktopConfig(unittest.TestCase):
             self.assertIn(pkg,packages)
 
 
+    def test_multi_gpu_and_controller_packages(self):
+        desktop=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
+        gaming=set((ROOT/'live-build/config/package-lists/30-gaming.list.chroot').read_text().split())
+        self.assertIn('switcheroo-control',desktop)
+        self.assertIn('jstest-gtk',gaming)
+        session=(BIN/'coffee-session').read_text()
+        self.assertIn('coffeeos/gpu-mode',session)
+        self.assertIn('DRI_PRIME=1',session)
+        self.assertIn('__NV_PRIME_RENDER_OFFLOAD=1',session)
+
     def test_plymouth_boot_splash(self):
         packages=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
         self.assertIn('plymouth',packages)
@@ -162,7 +172,7 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_python_files_compile_without_gui(self):
         import ast
-        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot','coffee-desktop-settings','coffee-night-light','coffee-gaming-indicator','coffee-support-bundle','coffee-installer-preflight','coffee-installer-report','coffee-hardware-health','coffee-driver-info','coffee-network-settings','coffee-accessibility','coffee-clipboard-history','coffee-app-center'):
+        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot','coffee-desktop-settings','coffee-night-light','coffee-gaming-indicator','coffee-support-bundle','coffee-installer-preflight','coffee-installer-report','coffee-hardware-health','coffee-driver-info','coffee-network-settings','coffee-accessibility','coffee-clipboard-history','coffee-app-center','coffee-gpu-manager','coffee-flatpak-permissions'):
             ast.parse((BIN/name).read_text())
 
 class TestDesktopAppearance(unittest.TestCase):

@@ -57,6 +57,19 @@ class TestControlCenterIntegration(unittest.TestCase):
         for page in ('overview','display','audio','bluetooth','updates','software'):
             self.assertIn("'"+page+"'",control)
 
+    def test_gpu_switching_controller_and_flatpak_pages(self):
+        control=(BIN/'coffee-control-center').read_text()
+        self.assertIn("if self.multi_gpu: self.add_page('gpu', 'GPU Switching'",control)
+        self.assertIn("'controllers', 'Controllers'",control)
+        self.assertIn("'flatpak', 'Flatpak Permissions'",control)
+        self.assertIn('jstest-gtk',control)
+        gpu=(BIN/'coffee-gpu-manager').read_text()
+        self.assertIn('GPU switching is available only when two or more GPUs are detected.',gpu)
+        self.assertIn("('hybrid','integrated','discrete')",gpu)
+        flat=(BIN/'coffee-flatpak-permissions').read_text()
+        for permission in ('network','audio','gpu','home'):self.assertIn(permission,flat)
+        self.assertIn('flatpak override',flat.replace("['flatpak','override'",'flatpak override'))
+
     def test_kernel_manager_page_and_backend(self):
         control=(BIN/'coffee-control-center').read_text()
         self.assertIn("'kernel', 'Kernel'",control)

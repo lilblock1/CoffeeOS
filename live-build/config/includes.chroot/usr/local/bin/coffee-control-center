@@ -153,6 +153,10 @@ class CoffeeControlCenter(Gtk.Window):
         self.get_style_context().add_class('coffee-control')
         self.busy = False
         self.software_buttons = {}
+        rc_gpu,raw_gpu=capture(['coffee-gpu-manager','status'],5)
+        try:self.gpu_boot_info=json.loads(raw_gpu) if rc_gpu==0 else {}
+        except ValueError:self.gpu_boot_info={}
+        self.multi_gpu=bool(self.gpu_boot_info.get('multi_gpu'))
 
         header = Gtk.HeaderBar(title='Coffee Control Center', subtitle='CoffeeOS system settings')
         header.set_show_close_button(True)
@@ -187,6 +191,9 @@ class CoffeeControlCenter(Gtk.Window):
         self.add_page('kernel', 'Kernel', self.kernel_page())
         self.add_page('performance', 'Performance', self.performance_page())
         self.add_page('gaming', 'Gaming', self.gaming_page())
+        self.add_page('controllers', 'Controllers', self.controllers_page())
+        if self.multi_gpu: self.add_page('gpu', 'GPU Switching', self.gpu_page())
+        self.add_page('flatpak', 'Flatpak Permissions', self.flatpak_page())
         self.add_page('appearance', 'Appearance', self.appearance_page())
         self.add_page('software', 'Software & Drivers', self.software_page())
         self.add_page('updates', 'Updates', self.updates_page())
@@ -203,7 +210,9 @@ class CoffeeControlCenter(Gtk.Window):
         scroll = Gtk.ScrolledWindow(); scroll.set_min_content_height(100); scroll.add(self.log)
         expander.add(scroll); bottom.pack_start(expander, False, True, 0)
 
-        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_network(); self.refresh_power(); self.refresh_input_region(); self.refresh_accessibility(); self.refresh_security(); self.refresh_apps(); self.refresh_system(); self.refresh_hardware(); self.refresh_recovery(); self.refresh_kernel(); self.refresh_performance(); self.refresh_gaming_devices(); self.refresh_software(); self.refresh_updates()
+        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_network(); self.refresh_power(); self.refresh_input_region(); self.refresh_accessibility(); self.refresh_security(); self.refresh_apps(); self.refresh_system(); self.refresh_hardware(); self.refresh_recovery(); self.refresh_kernel(); self.refresh_performance(); self.refresh_gaming_devices(); self.refresh_controllers(); self.refresh_flatpak();
+        if self.multi_gpu:self.refresh_gpu()
+        self.refresh_software(); self.refresh_updates()
 
     def add_page(self, name, title, widget):
         scroll = Gtk.ScrolledWindow(); scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -1001,6 +1010,104 @@ class CoffeeControlCenter(Gtk.Window):
         except ValueError: items=[]
         self.controller_status.set_text('\n'.join(f"• {x.get('name','Controller')} ({', '.join(x.get('handlers',[]))})" for x in items) if items else 'No game controllers detected.')
 
+
+    # Controller manager
+    def controllers_page(self):
+        box=self.page_box(); box.pack_start(self.label('Controller Manager','title'),False,False,0)
+        box.pack_start(self.label('Detect, test and troubleshoot gamepads without changing controller mappings behind your back.','muted'),False,False,0)
+        self.controllers_combo=Gtk.ComboBoxText(); self.row(box,'Controller','Connected controller and input handlers.',self.controllers_combo)
+        self.controllers_detail=self.label('');box.pack_start(self.controllers_detail,False,False,0)
+        row=Gtk.Box(spacing=8)
+        row.pack_start(self.button('Refresh',lambda *_:self.refresh_controllers()),False,False,0)
+        row.pack_start(self.button('Open Button / Axis Tester',lambda *_:self.launch(['jstest-gtk'])),False,False,0)
+        row.pack_start(self.button('Rumble Test…',self.controller_rumble),False,False,0)
+        row.pack_start(self.button('Steam Input…',self.controller_steam),False,False,0)
+        box.pack_start(row,False,False,0)
+        box.pack_start(self.label('Rumble Test opens fftest for the selected event device. Close the terminal to stop the test.','muted'),False,False,0)
+        return box
+    def refresh_controllers(self):
+        rc,raw=capture(['coffee-desktop-settings','controllers'],5)
+        try:items=json.loads(raw) if rc==0 else []
+        except ValueError:items=[]
+        current=self.controllers_combo.get_active_id();self.controllers_combo.remove_all();self.controller_map={}
+        for index,item in enumerate(items):
+            handlers=item.get('handlers',[]); key=str(index);self.controller_map[key]=item
+            self.controllers_combo.append(key,f"{item.get('name','Controller')}  ·  {', '.join(handlers)}")
+        if current in self.controller_map:self.controllers_combo.set_active_id(current)
+        elif items:self.controllers_combo.set_active(0)
+        self.controllers_detail.set_text(f'{len(items)} controller(s) detected.' if items else 'No game controllers detected.')
+        if hasattr(self,'controller_status'):self.controller_status.set_text('\n'.join(f"• {x.get('name','Controller')} ({', '.join(x.get('handlers',[]))})" for x in items) if items else 'No game controllers detected.')
+    def controller_selected(self):
+        return getattr(self,'controller_map',{}).get(self.controllers_combo.get_active_id() or '',{})
+    def controller_rumble(self,*_):
+        item=self.controller_selected();event=next((x for x in item.get('handlers',[]) if x.startswith('event')),'')
+        if not event:self.set_status('Selected controller has no event device for rumble testing.');return
+        self.launch(['foot','-e','fftest','/dev/input/'+event])
+    def controller_steam(self,*_):
+        if shutil.which('steam'):self.launch(['steam','steam://open/controller_base'])
+        else:self.set_status('Steam is not installed.')
+
+    # Multi-GPU switching
+    def gpu_page(self):
+        box=self.page_box();box.pack_start(self.label('GPU Switching','title'),False,False,0)
+        box.pack_start(self.label('Shown only on systems with multiple GPUs. CoffeeOS changes rendering preference for the next login; it never disables a GPU or unloads its driver.','muted'),False,False,0)
+        self.gpu_switch_status=self.label('');box.pack_start(self.gpu_switch_status,False,False,0)
+        self.gpu_mode=Gtk.ComboBoxText()
+        for value,label in (('hybrid','Hybrid / automatic'),('integrated','Integrated preferred · battery saving'),('discrete','Dedicated preferred · maximum graphics performance')):self.gpu_mode.append(value,label)
+        self.row(box,'Session GPU preference','Applies after logging out and back in.',self.gpu_mode)
+        row=Gtk.Box(spacing=8);row.pack_start(self.button('Apply Preference',self.apply_gpu_mode,True),False,False,0);row.pack_start(self.button('Refresh',lambda *_:self.refresh_gpu()),False,False,0);box.pack_start(row,False,False,0)
+        return box
+    def refresh_gpu(self):
+        rc,raw=capture(['coffee-gpu-manager','status'],8)
+        try:data=json.loads(raw) if rc==0 else {}
+        except ValueError:data={}
+        self.gpu_mode.set_active_id(data.get('mode','hybrid'))
+        lines=[x.get('device','')+' · '+(x.get('driver') or 'driver unknown') for x in data.get('gpus',[])]
+        self.gpu_switch_status.set_text('\n'.join(lines)+f"\nCurrent preference: {data.get('mode','hybrid')} · log out required after changes.")
+    def apply_gpu_mode(self,*_):
+        mode=self.gpu_mode.get_active_id() or 'hybrid'
+        self.action('Set GPU preference',['coffee-gpu-manager','set',mode],lambda _rc:self.refresh_gpu())
+
+    # Flatpak permissions
+    def flatpak_page(self):
+        box=self.page_box();box.pack_start(self.label('Flatpak Permissions','title'),False,False,0)
+        box.pack_start(self.label('Review and change common per-user Flatpak overrides. Apps still use desktop portals for permission prompts where supported.','muted'),False,False,0)
+        self.flatpak_status=self.label('');box.pack_start(self.flatpak_status,False,False,0)
+        self.flatpak_app=Gtk.ComboBoxText();self.flatpak_app.connect('changed',lambda *_:self.refresh_flatpak_permissions());self.row(box,'Application','Installed Flatpak application.',self.flatpak_app)
+        self.flatpak_network=Gtk.Switch();self.row(box,'Network','Allow network access.',self.flatpak_network)
+        self.flatpak_audio=Gtk.Switch();self.row(box,'Audio socket','Allow PipeWire/PulseAudio compatibility socket.',self.flatpak_audio)
+        self.flatpak_gpu=Gtk.Switch();self.row(box,'GPU / DRI device','Allow direct rendering device access.',self.flatpak_gpu)
+        self.flatpak_home=Gtk.Switch();self.row(box,'Home folder','Allow broad home-directory filesystem access.',self.flatpak_home)
+        row=Gtk.Box(spacing=8);row.pack_start(self.button('Apply Permissions',self.apply_flatpak_permissions,True),False,False,0);row.pack_start(self.button('Reset Overrides',self.reset_flatpak_permissions),False,False,0);row.pack_start(self.button('Refresh',lambda *_:self.refresh_flatpak()),False,False,0);box.pack_start(row,False,False,0)
+        return box
+    def refresh_flatpak(self):
+        rc,raw=capture(['coffee-flatpak-permissions','list'],10)
+        try:data=json.loads(raw) if rc==0 else {}
+        except ValueError:data={}
+        current=self.flatpak_app.get_active_id();self.flatpak_app.remove_all()
+        for item in data.get('apps',[]):self.flatpak_app.append(item.get('id'),f"{item.get('name')} · {item.get('id')}")
+        if current and any(x.get('id')==current for x in data.get('apps',[])):self.flatpak_app.set_active_id(current)
+        elif data.get('apps'):self.flatpak_app.set_active(0)
+        self.flatpak_status.set_text(('Choose an app to review permissions.' if data.get('apps') else 'No Flatpak applications installed.') if data.get('available') else 'Flatpak is not installed. Enable it under Apps & Startup first.')
+        self.refresh_flatpak_permissions()
+    def refresh_flatpak_permissions(self):
+        app=self.flatpak_app.get_active_id()
+        if not app:return
+        rc,raw=capture(['coffee-flatpak-permissions','show',app],8)
+        try:data=json.loads(raw) if rc==0 else {}
+        except ValueError:data={}
+        self.flatpak_network.set_active(bool(data.get('network')));self.flatpak_audio.set_active(bool(data.get('audio')));self.flatpak_gpu.set_active(bool(data.get('gpu')));self.flatpak_home.set_active(bool(data.get('home')))
+    def apply_flatpak_permissions(self,*_):
+        app=self.flatpak_app.get_active_id()
+        if not app:return
+        for name,widget in (('network',self.flatpak_network),('audio',self.flatpak_audio),('gpu',self.flatpak_gpu),('home',self.flatpak_home)):
+            rc,out=capture(['coffee-flatpak-permissions','set',app,name,'on' if widget.get_active() else 'off'],12)
+            if rc:self.set_status(out);return
+        self.set_status('Flatpak permission overrides saved for '+app+'.');self.refresh_flatpak_permissions()
+    def reset_flatpak_permissions(self,*_):
+        app=self.flatpak_app.get_active_id()
+        if app and self.confirm('Reset Flatpak overrides?',app):self.action('Reset Flatpak permissions',['coffee-flatpak-permissions','reset',app],lambda _rc:self.refresh_flatpak_permissions())
+
     # Appearance
     def appearance_page(self):
         box=self.page_box(); box.pack_start(self.label('Appearance', 'title'), False, False, 0)
@@ -1214,11 +1321,13 @@ class CoffeeControlCenter(Gtk.Window):
 
 def main():
     parser=argparse.ArgumentParser(description='CoffeeOS system settings')
-    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','network','power','input','accessibility','security','apps','system','hardware','recovery','kernel','performance','gaming','appearance','software','updates'))
+    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','network','power','input','accessibility','security','apps','system','hardware','recovery','kernel','performance','gaming','controllers','gpu','flatpak','appearance','software','updates'))
     args=parser.parse_args()
     apply_theme_style()
     win=CoffeeControlCenter()
-    if args.page: win.stack.set_visible_child_name(args.page)
+    if args.page:
+        child=win.stack.get_child_by_name(args.page)
+        win.stack.set_visible_child_name(args.page if child is not None else 'overview')
     win.connect('destroy',Gtk.main_quit); win.show_all(); Gtk.main()
 
 if __name__=='__main__': main()
