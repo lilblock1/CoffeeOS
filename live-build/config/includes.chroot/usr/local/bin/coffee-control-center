@@ -1064,17 +1064,18 @@ class CoffeeControlCenter(Gtk.Window):
     # Updates
     def updates_page(self):
         box=self.page_box(); box.pack_start(self.label('Updates', 'title'),False,False,0)
-        box.pack_start(self.label('Update the installed system in place. Debian security/base packages use Debian Stable; CoffeeOS releases can come from a signed CoffeeOS APT feed.', 'muted'),False,False,0)
+        box.pack_start(self.label('Debian security/base packages come from Debian Stable. CoffeeOS updates come from the signed lilblock1/CoffeeOS GitHub feed by default — no new ISO is required.', 'muted'),False,False,0)
         self.update_status=self.label(''); box.pack_start(self.update_status,False,False,0)
         self.update_feed=self.label(''); box.pack_start(self.update_feed,False,False,0)
         self.update_safety=self.label(''); box.pack_start(self.update_safety,False,False,0)
         buttons=Gtk.Box(spacing=8)
         self.update_check=self.button('Check Now',self.check_updates)
         self.update_install=self.button('Install Updates',self.install_updates,True)
-        self.update_source=self.button('Update Source',self.configure_update_feed)
+        self.update_github=self.button('Use GitHub Updates',self.use_github_updates)
+        self.update_source=self.button('Custom Source',self.configure_update_feed)
         self.update_cleanup=self.button('Clean Old Packages',self.cleanup_updates)
         self.update_rollback=self.button('Rollback Last Update',self.rollback_update)
-        for b in (self.update_check,self.update_install,self.update_source,self.update_cleanup,self.update_rollback): buttons.pack_start(b,False,False,0)
+        for b in (self.update_check,self.update_install,self.update_github,self.update_source,self.update_cleanup,self.update_rollback): buttons.pack_start(b,False,False,0)
         self.update_channel=Gtk.ComboBoxText()
         for value,label in (('stable','Stable'),('beta','Beta'),('dev','Dev')): self.update_channel.append(value,label)
         channel_row=Gtk.Box(spacing=8); channel_row.pack_start(self.update_channel,False,False,0); channel_row.pack_start(self.button('Set Update Channel',self.set_update_channel),False,False,0); box.pack_start(channel_row,False,False,0)
@@ -1089,7 +1090,7 @@ class CoffeeControlCenter(Gtk.Window):
 
     def refresh_updates(self):
         live=is_live()
-        self.update_install.set_sensitive(not live); self.update_cleanup.set_sensitive(not live); self.update_source.set_sensitive(not live)
+        self.update_install.set_sensitive(not live); self.update_cleanup.set_sensitive(not live); self.update_source.set_sensitive(not live); self.update_github.set_sensitive(not live)
         rc,raw=capture(['/usr/local/sbin/coffee-update','status','--json'],5)
         try: info=json.loads(raw) if rc==0 else {}
         except json.JSONDecodeError: info={}
@@ -1104,13 +1105,22 @@ class CoffeeControlCenter(Gtk.Window):
             self.update_status.set_text(f"CoffeeOS {info.get('version','unknown')} · cached upgrades: {count} ({coffee} CoffeeOS){reboot}")
         feed=info.get('feed_url','')
         self.update_channel.set_active_id(info.get('feed_suite','stable'))
-        self.update_feed.set_text('CoffeeOS feed: '+(feed if feed else 'not configured — Debian Stable updates still work'))
+        if info.get('feed_source')=='github':
+            configured='signed and ready' if info.get('feed_configured') else 'will bootstrap on next check'
+            self.update_feed.set_text(f"CoffeeOS source: GitHub · {info.get('github_repo','lilblock1/CoffeeOS')} · {configured}")
+        else:
+            self.update_feed.set_text('CoffeeOS feed: '+(feed if feed else 'not configured — Debian Stable updates still work'))
         rc,raw=capture(['/usr/local/sbin/coffee-update','plan','--json'],10)
         try: plan=json.loads(raw) if rc==0 else {}
         except ValueError: plan={}
         risk=plan.get('risk','unknown').upper(); reasons=', '.join(plan.get('reasons',[])[:8])
         self.update_safety.set_text('Update safety: '+risk+((' · sensitive: '+reasons) if reasons else ''))
         rc,ch=capture(['/usr/local/sbin/coffee-update','changelog'],5); self.update_changelog.get_buffer().set_text(ch if rc==0 else 'Changelog unavailable.')
+
+    def use_github_updates(self,*_):
+        channel=self.update_channel.get_active_id() or 'dev'
+        if self.confirm('Use official CoffeeOS GitHub updates?',f'Configure the signed lilblock1/CoffeeOS GitHub Pages feed on the {channel} channel?'):
+            self.action('Enable GitHub updates',['pkexec','/usr/local/sbin/coffee-update','use-github',channel],lambda _rc:self.refresh_updates())
 
     def set_update_channel(self,*_):
         channel=self.update_channel.get_active_id() or 'stable'
