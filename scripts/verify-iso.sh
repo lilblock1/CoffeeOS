@@ -40,6 +40,29 @@ unsquashfs -ll "$shared_squash" > "$shared_list"
 export COFFEEOS_VERIFY_SQUASHFS="$shared_squash"
 export COFFEEOS_VERIFY_SQUASHFS_LIST="$shared_list"
 
+# Static BIOS menu integrity check. This catches a broken Syslinux default even
+# when the slower BIOS QEMU smoke test is intentionally disabled in CI.
+bios_cfg="$verify_tmp/isolinux.cfg"
+bios_live_cfg="$verify_tmp/live.cfg"
+xorriso -osirrox on -indev "$ISO" -extract /isolinux/isolinux.cfg "$bios_cfg" >/dev/null 2>&1 || {
+  echo 'ERROR: could not extract BIOS isolinux.cfg.' >&2; exit 13;
+}
+xorriso -osirrox on -indev "$ISO" -extract /isolinux/live.cfg "$bios_live_cfg" >/dev/null 2>&1 || {
+  echo 'ERROR: could not extract BIOS live.cfg.' >&2; exit 13;
+}
+bios_default="$(awk '$1=="default"{print $2; exit}' "$bios_cfg")"
+bios_timeout="$(awk '$1=="ontimeout"{print $2; exit}' "$bios_cfg")"
+[[ -n "$bios_default" ]] || { echo 'ERROR: BIOS default label is missing.' >&2; exit 13; }
+grep -Eq "^label[[:space:]]+$bios_default$" "$bios_live_cfg" || {
+  echo "ERROR: BIOS default label '$bios_default' does not exist in live.cfg." >&2; exit 13;
+}
+if [[ -n "$bios_timeout" ]]; then
+  grep -Eq "^label[[:space:]]+$bios_timeout$" "$bios_live_cfg" || {
+    echo "ERROR: BIOS timeout label '$bios_timeout' does not exist in live.cfg." >&2; exit 13;
+  }
+fi
+echo "BIOS Syslinux labels verified: default=$bios_default timeout=${bios_timeout:-none}"
+
 verify_scripts=(
   verify-gaming-image.sh
   verify-optimization-image.sh
