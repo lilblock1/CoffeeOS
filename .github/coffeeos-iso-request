@@ -1,6 +1,6 @@
 # CoffeeOS ISO request
 
-Replacement build requested to verify the fix for failed workflow run 39617695618.
-Reason: normalize xorriso-quoted CoffeeKernel paths during ISO payload verification.
-Retry: 6
+Replacement CoffeeKernel ISO requested after the 20-update milestone.
+Includes the approved CoffeeOS Plymouth splash and the corrected CoffeeKernel
+live-boot staging hook.
 Requested: 2026-10-21
