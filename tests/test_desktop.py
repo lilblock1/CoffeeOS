@@ -16,6 +16,10 @@ BIN = CHROOT/'usr/local/bin'
 
 class TestDesktopConfig(unittest.TestCase):
 
+    def test_installer_has_unsquashfs_dependency(self):
+        packages=set((ROOT/'live-build/config/package-lists/20-installer.list.chroot').read_text().split())
+        self.assertIn('squashfs-tools', packages)
+
     def test_coffeeos_installer_replaces_debian_launcher(self):
         launcher=(CHROOT/'usr/share/applications/coffeeos-installer.desktop').read_text()
         self.assertIn('Name=Install CoffeeOS', launcher)

@@ -6,3 +6,6 @@ cryptsetup
 btrfs-progs
 e2fsprogs
 gparted
+
+# Required by Calamares unpackfs to extract the live filesystem
+squashfs-tools

@@ -16,6 +16,7 @@ else
   listing=$(unsquashfs -ll "$rootfs")
 fi
 for path in \
+  /usr/bin/unsquashfs \
   /usr/local/bin/coffee-control-center \
   /usr/local/bin/coffee-hardware-settings \
   /usr/local/bin/coffee-first-boot \
@@ -32,4 +33,4 @@ for path in \
   /usr/share/applications/coffee-welcome.desktop; do
   grep -Fq "$path" <<<"$listing" || { echo "ERROR: Phase 5 payload missing: $path" >&2; exit 5; }
 done
-echo 'Phase 5 Coffee Control Center payload verified inside SquashFS.'
+echo 'Calamares unpackfs dependency and Phase 5 Coffee Control Center payload verified inside SquashFS.'
