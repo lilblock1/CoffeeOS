@@ -60,7 +60,6 @@ for p in \
   usr/share/applications/coffee-gaming-setup.desktop \
   usr/share/applications/coffee-info.desktop \
   usr/share/applications/coffee-power-menu.desktop \
-  usr/share/applications/coffee-quick-settings.desktop \
   usr/share/backgrounds/coffeeos usr/share/themes \
   usr/share/icons/hicolor/scalable/apps/coffeeos.svg \
   usr/share/wayland-sessions/coffee.desktop usr/share/wayland-sessions/coffee-gaming.desktop usr/share/coffeeos \

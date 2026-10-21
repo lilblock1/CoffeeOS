@@ -21,7 +21,7 @@
     "battery",
     "tray",
     "custom/updates",
-    "custom/quicksettings",
+    "custom/controlcenter",
     "custom/power"
   ],
   "custom/coffee": {
@@ -72,7 +72,7 @@
   "tray": {
     "spacing": 8
   },
-  "custom/quicksettings": {
+  "custom/controlcenter": {
     "format": "⚙",
     "tooltip": "Coffee Control Center",
     "on-click": "coffee-control-center"
