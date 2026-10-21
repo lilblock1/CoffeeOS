@@ -1,0 +1,57 @@
+#!/bin/sh
+# Launch Coffee Desktop with hardware rendering when available and a robust
+# software fallback for VMs/unsupported GPUs.
+set -eu
+export XDG_CURRENT_DESKTOP=labwc
+export XDG_SESSION_DESKTOP=coffee
+export XDG_SESSION_TYPE=wayland
+# A normal authenticated user session works best with systemd-logind.
+export LIBSEAT_BACKEND=logind
+# Permit Mesa/wlroots software fallback even on systems where GPU EGL fails.
+export WLR_RENDERER_ALLOW_SOFTWARE=1
+
+force_software=0
+case "$(cat /proc/cmdline 2>/dev/null || true)" in
+  *coffeeos.software-render=1*) force_software=1 ;;
+esac
+
+vendor=''
+for f in /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name /sys/class/dmi/id/board_vendor; do
+  [ -r "$f" ] && vendor="$vendor $(cat "$f" 2>/dev/null || true)"
+done
+vendor=$(printf '%s' "$vendor" | tr '[:upper:]' '[:lower:]')
+case "$vendor" in
+  *vmware*|*virtualbox*|*qemu*|*kvm*|*bochs*|*parallels*|*microsoft\ corporation*)
+    force_software=1 ;;
+esac
+
+if [ "${COFFEE_FORCE_SOFTWARE_RENDERING:-0}" = 1 ]; then
+  force_software=1
+fi
+
+if [ "$force_software" = 1 ]; then
+  export WLR_RENDERER=pixman
+  export WLR_NO_HARDWARE_CURSORS=1
+fi
+
+run_labwc() {
+  if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    labwc
+  else
+    dbus-run-session -- labwc
+  fi
+}
+
+# First try the selected renderer. If hardware rendering unexpectedly fails on
+# a real machine, retry once with Pixman instead of dropping to a dead screen.
+if run_labwc; then
+  exit 0
+fi
+
+if [ "${WLR_RENDERER:-}" != pixman ]; then
+  echo '[CoffeeOS] Hardware Wayland renderer failed; retrying with Pixman software rendering.' >&2
+  export WLR_RENDERER=pixman
+  export WLR_NO_HARDWARE_CURSORS=1
+  exec dbus-run-session -- labwc
+fi
+exit 1

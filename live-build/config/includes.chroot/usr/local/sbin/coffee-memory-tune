@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Apply conservative RAM-size-aware VM defaults. No hugepage or swap disabling."""
+from pathlib import Path
+import argparse, json, os, re, sys
+
+def read_mem_gib():
+    data=Path('/proc/meminfo').read_text(); m=re.search(r'^MemTotal:\s+(\d+) kB',data,re.M)
+    return int(m.group(1))/1048576 if m else 8.0
+
+def profile(ram, gaming=False):
+    if ram <= 9:
+        p={'swappiness':100,'vfs_cache_pressure':80,'dirty_background_ratio':3 if gaming else 5,'dirty_ratio':12 if gaming else 15}
+        name='low-memory'
+    elif ram <= 17:
+        p={'swappiness':80,'vfs_cache_pressure':70,'dirty_background_ratio':5,'dirty_ratio':15}
+        name='mainstream'
+    else:
+        p={'swappiness':60,'vfs_cache_pressure':60,'dirty_background_ratio':5,'dirty_ratio':20}
+        name='high-memory'
+    p['page_cluster']=0; p['name']=name + ('-gaming' if gaming else '')
+    return p
+
+def write_sysctl(key,val):
+    path=Path('/proc/sys')/key.replace('.','/')
+    if path.exists() and os.access(path,os.W_OK): path.write_text(str(val)+'\n')
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument('mode',choices=['normal','gaming','status'],nargs='?',default='normal'); ap.add_argument('--json',action='store_true'); a=ap.parse_args()
+    ram=read_mem_gib(); gaming=a.mode=='gaming'; p=profile(ram,gaming)
+    state={'ram_gib':round(ram,2),'profile':p['name'],'settings':p}
+    if a.mode!='status':
+        if os.geteuid()!=0: print('coffee-memory-tune: root required',file=sys.stderr); return 2
+        for key,name in [('vm.swappiness','swappiness'),('vm.vfs_cache_pressure','vfs_cache_pressure'),('vm.page-cluster','page_cluster'),('vm.dirty_background_ratio','dirty_background_ratio'),('vm.dirty_ratio','dirty_ratio')]: write_sysctl(key,p[name])
+        d=Path('/run/coffeeos'); d.mkdir(parents=True,exist_ok=True); (d/'memory-profile.json').write_text(json.dumps(state,indent=2)+'\n')
+    if a.json: print(json.dumps(state,indent=2))
+    else: print(f"CoffeeOS memory profile: {p['name']} ({ram:.1f} GiB RAM)")
+    return 0
+if __name__=='__main__': raise SystemExit(main())

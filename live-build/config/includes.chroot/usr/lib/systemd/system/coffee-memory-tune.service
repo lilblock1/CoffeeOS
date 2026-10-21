@@ -1,0 +1,12 @@
+[Unit]
+Description=CoffeeOS RAM-size-aware memory tuning
+After=systemd-sysctl.service
+Before=coffee-performance-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/coffee-memory-tune normal
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

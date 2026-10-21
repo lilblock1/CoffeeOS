@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""CoffeeOS hardware/topology probe used by performance tuning and diagnostics."""
+from __future__ import annotations
+import argparse, json, os, platform, re, subprocess
+from pathlib import Path
+
+SYS_CPU=Path('/sys/devices/system/cpu')
+
+def text(path, default=''):
+    try: return Path(path).read_text(errors='replace').strip()
+    except OSError: return default
+
+def cpu_flags():
+    for block in text('/proc/cpuinfo').split('\n\n'):
+        for line in block.splitlines():
+            if line.startswith(('flags\t', 'flags :', 'Features\t', 'Features :')):
+                return set(line.split(':',1)[1].split())
+    return set()
+
+def cpu_level(flags):
+    # Conservative approximation of psABI x86-64 feature levels. Baseline is
+    # always kept available; this only advertises when optional variants are safe.
+    v2={'cx16','lahf_lm','popcnt','pni','ssse3','sse4_1','sse4_2'}
+    v3={'avx','avx2','bmi1','bmi2','f16c','fma','movbe','xsave'}
+    # AMD exposes LZCNT as ABM on many kernels.
+    v3_lzcnt=('lzcnt' in flags or 'abm' in flags)
+    v4={'avx512f','avx512bw','avx512cd','avx512dq','avx512vl'}
+    if v2 <= flags and v3 <= flags and v3_lzcnt and v4 <= flags: return 'x86-64-v4'
+    if v2 <= flags and v3 <= flags and v3_lzcnt: return 'x86-64-v3'
+    if v2 <= flags: return 'x86-64-v2'
+    return 'x86-64-v1'
+
+def cpu_model():
+    for line in text('/proc/cpuinfo').splitlines():
+        if line.startswith('model name'):
+            return line.split(':',1)[1].strip()
+    return platform.processor() or 'Unknown'
+
+def cpu_topology():
+    logical=[]; cores=set(); packages=set(); core_types={}
+    for p in sorted(SYS_CPU.glob('cpu[0-9]*'), key=lambda p:int(p.name[3:])):
+        if not re.fullmatch(r'cpu\d+', p.name): continue
+        n=int(p.name[3:]); logical.append(n)
+        pkg=text(p/'topology/physical_package_id','0'); core=text(p/'topology/core_id',str(n))
+        packages.add(pkg); cores.add((pkg,core))
+        ctype=text(p/'topology/core_type','')
+        if ctype: core_types[str(n)]=ctype
+    return {'logical_cpus':len(logical),'physical_cores':len(cores) or len(logical),
+            'packages':len(packages) or 1,'core_types':core_types}
+
+def mem_gib():
+    m=re.search(r'^MemTotal:\s+(\d+) kB',text('/proc/meminfo'),re.M)
+    return round(int(m.group(1))/1048576,2) if m else 0
+
+def gpu_info():
+    try:
+        out=subprocess.run(['lspci','-nnk'],text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=4).stdout
+    except (OSError,subprocess.TimeoutExpired): return []
+    lines=out.splitlines(); result=[]
+    for i,line in enumerate(lines):
+        if any(k in line for k in ('VGA compatible controller','3D controller','Display controller')):
+            item={'device':line.strip()}
+            for follow in lines[i+1:i+4]:
+                s=follow.strip()
+                if s.startswith('Kernel driver in use:'): item['driver']=s.split(':',1)[1].strip()
+            result.append(item)
+    return result
+
+def storage_info():
+    out=[]
+    for dev in sorted(Path('/sys/block').iterdir() if Path('/sys/block').exists() else []):
+        if not re.fullmatch(r'(nvme\d+n\d+|sd[a-z]+|mmcblk\d+)',dev.name): continue
+        out.append({'name':dev.name,'rotational':text(dev/'queue/rotational')=='1',
+                    'scheduler':text(dev/'queue/scheduler'),'model':text(dev/'device/model')})
+    return out
+
+def power_info():
+    battery=False; online=None
+    for p in Path('/sys/class/power_supply').glob('*') if Path('/sys/class/power_supply').exists() else []:
+        typ=text(p/'type').lower()
+        if typ=='battery': battery=True
+        elif typ in ('mains','usb','usb_c','usb_pd') and (p/'online').exists():
+            online = online or text(p/'online')=='1'
+    return {'battery_present':battery,'ac_online':online}
+
+def sched_ext():
+    return {'supported':Path('/sys/kernel/sched_ext').exists(),
+            'state':text('/sys/kernel/sched_ext/state','unavailable'),
+            'ops':text('/sys/kernel/sched_ext/root/ops','')}
+
+def collect():
+    flags=cpu_flags(); topo=cpu_topology()
+    return {'cpu':{'model':cpu_model(),'architecture':platform.machine(),'feature_level':cpu_level(flags),
+                   'flags_count':len(flags),**topo},'memory_gib':mem_gib(),'gpus':gpu_info(),
+            'storage':storage_info(),'power':power_info(),'sched_ext':sched_ext(),
+            'kernel':platform.release(),'virtualization':text('/sys/class/dmi/id/product_name')}
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument('--json',action='store_true'); args=ap.parse_args()
+    d=collect()
+    if args.json: print(json.dumps(d,indent=2,sort_keys=True)); return
+    c=d['cpu']; print(f"CPU: {c['model']}")
+    print(f"Topology: {c['physical_cores']} cores / {c['logical_cpus']} threads / {c['packages']} package(s)")
+    print(f"CPU optimized-binary level: {c['feature_level']}")
+    print(f"Memory: {d['memory_gib']} GiB")
+    print(f"Kernel: {d['kernel']}")
+    print(f"sched_ext: {d['sched_ext']['state']}" + (f" ({d['sched_ext']['ops']})" if d['sched_ext']['ops'] else ''))
+    for g in d['gpus']: print('GPU: '+g['device'] + (f" · driver {g.get('driver')}" if g.get('driver') else ''))
+    for s in d['storage']: print(f"Storage: {s['name']} · {'HDD' if s['rotational'] else 'SSD/NVMe'} · {s['scheduler']}")
+    p=d['power']; print('Power: '+('battery system' if p['battery_present'] else 'desktop/no battery') + (f" · AC {'online' if p['ac_online'] else 'offline'}" if p['ac_online'] is not None else ''))
+if __name__=='__main__': main()

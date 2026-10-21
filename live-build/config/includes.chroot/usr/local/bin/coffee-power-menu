@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""CoffeeOS power menu: confirms potentially disruptive commands."""
+import subprocess
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk
+
+COMMANDS = {
+    'Log out': ['labwc', '--exit'],
+    'Restart': ['systemctl', 'reboot'],
+    'Shut down': ['systemctl', 'poweroff'],
+}
+
+def request(label):
+    confirm = Gtk.MessageDialog(parent=window, flags=Gtk.DialogFlags.MODAL,
+                                message_type=Gtk.MessageType.QUESTION,
+                                buttons=Gtk.ButtonsType.YES_NO,
+                                text=f'{label} now?')
+    confirm.format_secondary_text('Unsaved work may be lost.')
+    answer = confirm.run()
+    confirm.destroy()
+    if answer != Gtk.ResponseType.YES:
+        return
+    try:
+        subprocess.Popen(COMMANDS[label])
+    except OSError as exc:
+        error = Gtk.MessageDialog(parent=window, flags=Gtk.DialogFlags.MODAL,
+                                  message_type=Gtk.MessageType.ERROR,
+                                  buttons=Gtk.ButtonsType.CLOSE, text=str(exc))
+        error.run()
+        error.destroy()
+
+window = Gtk.Window(title='CoffeeOS · Power')
+window.set_default_size(320, 150)
+content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+content.set_border_width(20)
+window.add(content)
+content.pack_start(Gtk.Label(label='☕  CoffeeOS'), False, False, 0)
+for label in COMMANDS:
+    button = Gtk.Button(label=label)
+    button.connect('clicked', lambda _widget, name=label: request(name))
+    content.pack_start(button, True, True, 0)
+window.connect('destroy', Gtk.main_quit)
+window.show_all()
+Gtk.main()

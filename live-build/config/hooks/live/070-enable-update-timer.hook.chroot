@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+# Enabled in the installed filesystem. The service itself refuses live sessions.
+systemctl enable coffee-update-check.timer >/dev/null 2>&1 || true

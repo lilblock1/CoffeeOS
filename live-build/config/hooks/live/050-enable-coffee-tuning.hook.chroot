@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+mkdir -p /etc/systemd/system/multi-user.target.wants
+ln -sf /usr/lib/systemd/system/coffee-storage-tune.service /etc/systemd/system/multi-user.target.wants/coffee-storage-tune.service
+
+mkdir -p /etc/systemd/system/multi-user.target.wants
+ln -sf /usr/lib/systemd/system/coffee-memory-tune.service /etc/systemd/system/multi-user.target.wants/coffee-memory-tune.service
+ln -sf /usr/lib/systemd/system/coffee-performance-daemon.service /etc/systemd/system/multi-user.target.wants/coffee-performance-daemon.service

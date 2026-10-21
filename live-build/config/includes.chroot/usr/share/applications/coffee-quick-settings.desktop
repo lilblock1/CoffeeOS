@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Coffee Quick Settings
+Comment=CoffeeOS sound, network and appearance
+Exec=coffee-quick-settings
+Terminal=false
+Type=Application
+Icon=coffeeos
+Categories=Settings;DesktopSettings;
+StartupNotify=true

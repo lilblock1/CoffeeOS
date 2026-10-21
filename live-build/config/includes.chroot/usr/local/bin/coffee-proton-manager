@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Safe local custom-Proton importer for Steam compatibilitytools.d.
+
+Steam manages Valve Proton itself. This tool manages user-downloaded custom
+compatibility tools (for example Proton-GE tar archives) without root/network.
+"""
+from __future__ import annotations
+import argparse, os, shutil, tarfile, tempfile
+from pathlib import Path
+
+
+def steam_root() -> Path:
+    candidates = [Path.home()/'.local/share/Steam', Path.home()/'.steam/root']
+    for p in candidates:
+        if p.exists(): return p.resolve()
+    return candidates[0]
+
+
+def tools_dir() -> Path:
+    return steam_root()/'compatibilitytools.d'
+
+
+def safe_members(tf: tarfile.TarFile):
+    members=tf.getmembers()
+    for m in members:
+        p=Path(m.name)
+        if p.is_absolute() or '..' in p.parts or m.issym() or m.islnk():
+            raise ValueError(f'unsafe archive member: {m.name}')
+    return members
+
+
+def top_level(members):
+    roots={Path(m.name).parts[0] for m in members if Path(m.name).parts}
+    if len(roots) != 1:
+        raise ValueError('archive must contain exactly one top-level directory')
+    return next(iter(roots))
+
+
+def install(archive: Path):
+    if not archive.is_file(): raise ValueError('archive does not exist')
+    destroot=tools_dir(); destroot.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, 'r:*') as tf:
+        members=safe_members(tf); root=top_level(members)
+        if not any(Path(m.name) == Path(root)/'compatibilitytool.vdf' for m in members):
+            raise ValueError('archive is not a Steam compatibility tool (compatibilitytool.vdf missing)')
+        dest=destroot/root
+        if dest.exists(): raise ValueError(f'{root} is already installed')
+        with tempfile.TemporaryDirectory(prefix='.coffee-proton-', dir=destroot) as td:
+            tf.extractall(td, members=members, filter='data')
+            staged=Path(td)/root
+            if not (staged/'compatibilitytool.vdf').is_file(): raise ValueError('invalid staged tool')
+            os.replace(staged, dest)
+    print(f'Installed {root} -> {dest}')
+    print('Restart Steam before selecting the custom compatibility tool.')
+
+
+def list_tools():
+    root=tools_dir()
+    if not root.exists(): return
+    for p in sorted(root.iterdir()):
+        if p.is_dir() and (p/'compatibilitytool.vdf').is_file(): print(p.name)
+
+
+def remove(name: str):
+    if not name or name in ('.','..') or '/' in name or '\\' in name:
+        raise ValueError('invalid tool name')
+    root=tools_dir().resolve(); target=(root/name).resolve()
+    if target.parent != root: raise ValueError('invalid tool path')
+    if not target.is_dir() or not (target/'compatibilitytool.vdf').is_file():
+        raise ValueError('custom compatibility tool not found')
+    shutil.rmtree(target)
+    print(f'Removed {name}')
+
+
+def main():
+    ap=argparse.ArgumentParser(description='Manage user-installed custom Steam compatibility tools')
+    sub=ap.add_subparsers(dest='cmd', required=True)
+    sub.add_parser('list')
+    i=sub.add_parser('install-archive'); i.add_argument('archive', type=Path)
+    r=sub.add_parser('remove'); r.add_argument('name')
+    sub.add_parser('path')
+    args=ap.parse_args()
+    try:
+        if args.cmd=='list': list_tools()
+        elif args.cmd=='install-archive': install(args.archive.expanduser().resolve())
+        elif args.cmd=='remove': remove(args.name)
+        else: print(tools_dir())
+    except (OSError, ValueError, tarfile.TarError) as exc:
+        print(f'coffee-proton-manager: {exc}', file=__import__('sys').stderr)
+        return 1
+    return 0
+
+if __name__=='__main__': raise SystemExit(main())

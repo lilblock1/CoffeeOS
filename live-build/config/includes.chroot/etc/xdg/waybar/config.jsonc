@@ -1,0 +1,92 @@
+{
+  "layer": "top",
+  "position": "top",
+  "height": 40,
+  "spacing": 6,
+  "margin-top": 6,
+  "margin-left": 9,
+  "margin-right": 9,
+  "modules-left": [
+    "custom/coffee",
+    "wlr/taskbar"
+  ],
+  "modules-center": [
+    "clock"
+  ],
+  "modules-right": [
+    "cpu",
+    "memory",
+    "network",
+    "pulseaudio",
+    "battery",
+    "tray",
+    "custom/updates",
+    "custom/quicksettings",
+    "custom/power"
+  ],
+  "custom/coffee": {
+    "format": "☕  CoffeeOS",
+    "tooltip": "Open applications",
+    "on-click": "fuzzel"
+  },
+  "wlr/taskbar": {
+    "format": "{icon}",
+    "icon-size": 18,
+    "tooltip-format": "{title}",
+    "on-click": "activate",
+    "on-click-middle": "close"
+  },
+  "clock": {
+    "format": "{:%A  •  %b %d   %H:%M}",
+    "tooltip-format": "{:%A, %B %d, %Y}"
+  },
+  "cpu": {
+    "format": " {usage}%",
+    "interval": 10,
+    "tooltip": true
+  },
+  "memory": {
+    "format": "RAM {}%",
+    "interval": 10
+  },
+  "network": {
+    "format-wifi": "Wi-Fi  {signalStrength}%",
+    "format-ethernet": "Ethernet",
+    "format-disconnected": "Offline",
+    "tooltip": true,
+    "on-click": "nm-connection-editor"
+  },
+  "pulseaudio": {
+    "format": "Vol  {volume}%",
+    "format-muted": "Muted",
+    "on-click": "pavucontrol",
+    "scroll-step": 5
+  },
+  "battery": {
+    "format": "BAT  {capacity}%",
+    "format-charging": "Charging  {capacity}%",
+    "format-full": "",
+    "format-not-present": "",
+    "interval": 30
+  },
+  "tray": {
+    "spacing": 8
+  },
+  "custom/quicksettings": {
+    "format": "⚙",
+    "tooltip": "Coffee Control Center",
+    "on-click": "coffee-control-center"
+  },
+  "custom/power": {
+    "format": "⏻",
+    "tooltip": "Power menu",
+    "on-click": "coffee-power-menu"
+  },
+  "custom/updates": {
+    "exec": "coffee-update-indicator",
+    "return-type": "json",
+    "interval": 60,
+    "tooltip": true,
+    "on-click": "coffee-control-center"
+  }
+}

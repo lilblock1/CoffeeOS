@@ -1,0 +1,18 @@
+# source-package|tier|optimization|binary-package-regex
+# Core = small/medium, high-impact components rebuilt by the default optimized build.
+# Deep = heavier graphics/audio/input stack; optional because builds can take hours.
+wlroots|core|lto|^(libwlroots-0\.18)$
+labwc|core|o3-lto|^(labwc)$
+gamemode|core|o3-lto|^(gamemode|gamemode-daemon|libgamemode0|libgamemodeauto0)$
+mangohud|core|o3-lto|^(mangohud|mangohudctl|mangoapp)$
+waybar|core|o3-lto|^(waybar)$
+fuzzel|core|o3-lto|^(fuzzel)$
+foot|core|o3-lto|^(foot|foot-terminfo)$
+seatd|deep|o3-lto|^(seatd|libseat1)$
+libinput|deep|lto|^(libinput10|libinput-bin)$
+libdrm|deep|lto|^(libdrm2|libdrm-amdgpu1|libdrm-intel1|libdrm-nouveau2|libdrm-radeon1)$
+wayland|deep|lto|^(libwayland-client0|libwayland-server0|libwayland-cursor0|libwayland-egl1)$
+pipewire|deep|lto|^(pipewire|pipewire-bin|pipewire-pulse|libpipewire-0\.3-0|libspa-0\.2-modules)$
+wireplumber|deep|o3-lto|^(wireplumber|libwireplumber-0\.5-0)$
+mesa|deep|lto|^(libegl-mesa0|libgl1-mesa-dri|libglapi-mesa|libglx-mesa0|mesa-libgallium|mesa-vulkan-drivers)$
+xwayland|deep|lto|^(xwayland)$

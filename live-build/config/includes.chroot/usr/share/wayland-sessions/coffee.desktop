@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Coffee Desktop
+Comment=Lightweight Wayland desktop for CoffeeOS
+Exec=coffee-session
+TryExec=labwc
+Type=Application
+DesktopNames=labwc

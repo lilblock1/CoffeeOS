@@ -1,0 +1,3 @@
+#!/bin/sh
+set -eu
+systemctl enable coffeeos-boot-ok.service

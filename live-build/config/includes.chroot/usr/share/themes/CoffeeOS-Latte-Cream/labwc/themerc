@@ -1,0 +1,23 @@
+# CoffeeOS-Latte-Cream: CoffeeOS native labwc theme
+border.width: 1
+padding.height: 7
+titlebar.height: 30
+window.active.border.color: #8b5634
+window.inactive.border.color: #b8906d
+window.active.title.bg.color: #fff7e9
+window.inactive.title.bg.color: #efe1cc
+window.active.label.text.color: #3a281f
+window.inactive.label.text.color: #786153
+window.active.button.unpressed.image.color: #b97545
+window.inactive.button.unpressed.image.color: #786153
+menu.items.bg.color: #efe1cc
+menu.items.text.color: #3a281f
+menu.items.active.bg.color: #d9bea1
+menu.items.active.text.color: #b97545
+menu.separator.color: #b8906d
+osd.bg.color: #fff7e9
+osd.label.text.color: #3a281f
+window.active.shadow.size: 14
+window.inactive.shadow.size: 8
+window.active.shadow.color: #00000090
+window.inactive.shadow.color: #00000070

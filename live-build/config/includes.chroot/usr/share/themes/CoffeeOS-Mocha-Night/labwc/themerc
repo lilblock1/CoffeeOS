@@ -1,0 +1,23 @@
+# CoffeeOS-Mocha-Night: CoffeeOS native labwc theme
+border.width: 1
+padding.height: 7
+titlebar.height: 30
+window.active.border.color: #c78667
+window.inactive.border.color: #594047
+window.active.title.bg.color: #21171a
+window.inactive.title.bg.color: #0f0c0d
+window.active.label.text.color: #f2e7e3
+window.inactive.label.text.color: #b9a5a5
+window.active.button.unpressed.image.color: #e2ad8f
+window.inactive.button.unpressed.image.color: #b9a5a5
+menu.items.bg.color: #0f0c0d
+menu.items.text.color: #f2e7e3
+menu.items.active.bg.color: #4a2d35
+menu.items.active.text.color: #e2ad8f
+menu.separator.color: #594047
+osd.bg.color: #21171a
+osd.label.text.color: #f2e7e3
+window.active.shadow.size: 14
+window.inactive.shadow.size: 8
+window.active.shadow.color: #00000090
+window.inactive.shadow.color: #00000070

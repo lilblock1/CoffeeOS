@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Small local benchmark for CoffeeOS tuning/regression comparisons.
+Not an FPS benchmark; records CPU hashing, memory touch and temporary disk I/O.
+"""
+from __future__ import annotations
+import argparse, hashlib, json, os, platform, tempfile, time
+from pathlib import Path
+
+def rate(bytes_count,seconds): return round(bytes_count/1048576/max(seconds,1e-9),1)
+def cpu_test(mib):
+    block=os.urandom(1024*1024); h=hashlib.sha256(); start=time.perf_counter()
+    for _ in range(mib): h.update(block)
+    return {'mib_per_s':rate(mib*1048576,time.perf_counter()-start),'digest':h.hexdigest()[:16]}
+def mem_test(mib):
+    size=mib*1048576; b=bytearray(size); start=time.perf_counter()
+    for i in range(0,size,4096): b[i]=(i//4096)&255
+    elapsed=time.perf_counter()-start
+    return {'mib_per_s_page_touch':rate(size,elapsed)}
+def disk_test(mib):
+    base=Path(os.environ.get('XDG_CACHE_HOME',Path.home()/'.cache'))/'coffeeos'; base.mkdir(parents=True,exist_ok=True)
+    payload=b'CoffeeOS-benchmark\0'*(1048576//19); payload=payload[:1048576]
+    fd,path=tempfile.mkstemp(prefix='bench-',dir=base); os.close(fd); p=Path(path)
+    try:
+        start=time.perf_counter()
+        with p.open('wb',buffering=1024*1024) as f:
+            for _ in range(mib): f.write(payload)
+            f.flush(); os.fsync(f.fileno())
+        write=rate(mib*1048576,time.perf_counter()-start)
+        start=time.perf_counter(); total=0
+        with p.open('rb',buffering=1024*1024) as f:
+            while chunk:=f.read(1024*1024): total+=len(chunk)
+        read=rate(total,time.perf_counter()-start)
+        return {'write_mib_per_s':write,'read_mib_per_s':read}
+    finally: p.unlink(missing_ok=True)
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument('--quick',action='store_true'); ap.add_argument('--json',action='store_true'); a=ap.parse_args()
+    cpu=64 if a.quick else 256; mem=128 if a.quick else 512; disk=64 if a.quick else 256
+    result={'version':1,'timestamp':int(time.time()),'kernel':platform.release(),'cpu':cpu_test(cpu),'memory':mem_test(mem),'disk':disk_test(disk)}
+    state=Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local/state'))/'coffeeos'; state.mkdir(parents=True,exist_ok=True); (state/'benchmark.json').write_text(json.dumps(result,indent=2)+'\n')
+    if a.json: print(json.dumps(result,indent=2))
+    else:
+        print('CoffeeOS benchmark (local comparison; not an FPS score)')
+        print(f"CPU SHA256: {result['cpu']['mib_per_s']} MiB/s")
+        print(f"Memory page touch: {result['memory']['mib_per_s_page_touch']} MiB/s")
+        print(f"Disk write/read: {result['disk']['write_mib_per_s']} / {result['disk']['read_mib_per_s']} MiB/s")
+if __name__=='__main__': main()

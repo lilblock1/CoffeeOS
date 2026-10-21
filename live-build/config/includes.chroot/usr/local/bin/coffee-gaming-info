@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Read-only CoffeeOS gaming stack and GPU summary."""
+from __future__ import annotations
+import shutil, subprocess
+from pathlib import Path
+
+
+def run(cmd, timeout=5):
+    try:
+        p = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout, check=False)
+        text = (p.stdout or p.stderr).strip()
+        return p.returncode, text
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 127, str(exc)
+
+
+def first_line(cmd):
+    rc, out = run(cmd)
+    return out.splitlines()[0] if rc == 0 and out else 'not available'
+
+
+def installed(name):
+    rc, out = run(['dpkg-query','-W','-f=${Status}',name])
+    return rc == 0 and 'install ok installed' in out
+
+
+def main():
+    print('CoffeeOS Gaming Diagnostics')
+    print('===========================')
+    if shutil.which('lspci'):
+        rc, out = run(['lspci','-nnk'])
+        gpu=[]; keep=0
+        for line in out.splitlines() if rc == 0 else []:
+            if any(x in line for x in ('VGA compatible controller','3D controller','Display controller')):
+                gpu.append(line.strip()); keep=3
+            elif keep and ('Kernel driver in use:' in line or 'Kernel modules:' in line):
+                gpu.append('  '+line.strip()); keep -= 1
+        print('GPU:')
+        print('\n'.join('  '+x for x in gpu) if gpu else '  not detected')
+    else:
+        print('GPU: lspci not available')
+
+    print('Vulkan:', 'installed' if installed('libvulkan1') else 'missing')
+    if shutil.which('vulkaninfo'):
+        rc, out = run(['vulkaninfo','--summary'], timeout=10)
+        if rc == 0:
+            names=[line.strip() for line in out.splitlines() if 'deviceName' in line]
+            print('Vulkan devices:', '; '.join(names[:4]) if names else 'loader works')
+        else:
+            print('Vulkan runtime:', 'present, but no working Vulkan device in this session')
+    gamemoderun = shutil.which('gamemoderun') or ('/usr/games/gamemoderun' if Path('/usr/games/gamemoderun').is_file() else None)
+    print('GameMode:', first_line(['gamemoded','--version']) if shutil.which('gamemoded') else ('installed' if gamemoderun else 'missing'))
+    print('MangoHud:', first_line(['mangohud','--version']) if shutil.which('mangohud') else 'missing')
+    print('Gamescope:', first_line(['gamescope','--version']) if shutil.which('gamescope') else 'optional / not installed')
+    print('Wine:', first_line(['wine','--version']) if shutil.which('wine') else 'optional / not installed')
+    print('Lutris:', first_line(['lutris','--version']) if shutil.which('lutris') else 'optional / not installed')
+    print('Steam:', 'installed' if shutil.which('steam') else 'optional / not installed')
+    rc, arch = run(['dpkg','--print-foreign-architectures'])
+    print('i386 multiarch:', 'enabled' if rc == 0 and 'i386' in arch.split() else 'not enabled')
+    print('Gaming Mode:', first_line(['coffee-gaming-mode','--status']) if shutil.which('coffee-gaming-mode') else 'missing')
+    return 0
+
+if __name__ == '__main__':
+    raise SystemExit(main())

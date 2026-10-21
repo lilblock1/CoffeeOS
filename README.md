@@ -1,38 +1,115 @@
 # CoffeeOS
 
-CoffeeOS is a Debian 13 (Trixie) based gaming Linux distribution focused on low overhead, adaptive performance tuning, a lightweight Wayland desktop, and an updateable CoffeeOS package layer.
+CoffeeOS is an in-development Debian 13 (Trixie) gaming Linux distribution for amd64. This repository is the **Linux source tree used to build the CoffeeOS ISO**. It intentionally does not contain the old Windows/WSL ISO Builder wrapper.
 
-> Status: active development. The current development line is 0.10.x. CoffeeOS is not yet a production release.
+Current development version: **0.10.0-dev**.
 
-## Goals
+## What is in this repository
 
-- Debian Stable foundation with APT/dpkg compatibility
-- One custom CoffeeKernel with runtime Lite, Balanced, Performance, and Portable profiles
-- Lightweight labwc / Wayland Coffee Desktop
-- Adaptive gaming performance engine
-- Deep-optimized curated packages while preserving Debian fallbacks
-- One installer ISO with optional software choices such as Steam, Wine/DXVK, Gamescope, Lutris, and Heroic
-- Signed in-place CoffeeOS updates in addition to Debian security updates
-- Stable, Beta, and Developer release channels
-- Prebuilt optimized packages so end-user builds do not need to compile Mesa and CoffeeKernel every time
+- Debian `live-build` recipe for a BIOS + UEFI hybrid ISO
+- CoffeeKernel source/configuration and package build scripts
+- labwc Wayland Coffee Desktop configuration
+- Coffee Performance Daemon and runtime performance profiles
+- Coffee Control Center and quick settings
+- gaming integration for GameMode, MangoHud, Gamescope, Steam/Proton, Wine/DXVK and optional Lutris
+- Calamares integration and optional-software page
+- CoffeeOS themes and source-friendly SVG wallpapers
+- Deep optimized-package build scripts
+- signed APT update-repository tooling
+- validation, ISO verification and QEMU boot-test scripts
 
-## Repository infrastructure
+Generated files such as `.iso` and `.deb` packages are intentionally not committed.
 
-GitHub Actions in `.github/workflows/` is designed to provide:
+## Build host
 
-- source validation and tests
-- ISO builds and QEMU smoke tests
-- package/repository publication
-- Stable / Beta / Developer channels
-- signed APT metadata
-- release artifacts and SHA-256 checksums
+Use a **native Debian 13 amd64** machine or VM. A dedicated build machine/VM is strongly recommended because `live-build` creates chroots and mounts filesystems.
 
-See [GitHub infrastructure](docs/GITHUB-INFRASTRUCTURE.md), [signing setup](docs/SIGNING.md), and [release process](docs/RELEASING.md).
+Recommended resources:
 
-## Security
+- 8 GB RAM or more
+- 40 GB or more free disk space for Deep builds
+- working Internet access to Debian repositories
+- root/sudo access
 
-Do not commit private signing keys, passwords, tokens, or GitHub credentials. Release signing material belongs in GitHub Actions secrets or an offline signing environment.
+Install the core build dependencies:
+
+```bash
+sudo apt update
+sudo apt install --no-install-recommends \
+  live-build debootstrap squashfs-tools xorriso \
+  grub-pc-bin grub-efi-amd64-bin mtools dosfstools \
+  ca-certificates gnupg rsync qemu-system-x86 ovmf python3 \
+  build-essential dpkg-dev devscripts fakeroot apt-utils \
+  bc bison flex kmod cpio libelf-dev libssl-dev libncurses-dev \
+  dwarves debhelper linux-source-6.12 linux-config-6.12 ccache
+```
+
+## Validate the source
+
+```bash
+bash scripts/validate.sh
+bash scripts/preflight.sh
+python3 -m unittest discover -s tests -v
+```
+
+## Build CoffeeOS
+
+The normal ISO script builds the CoffeeOS-owned package from the current source before invoking Debian `live-build`:
+
+```bash
+sudo bash scripts/build-iso.sh
+```
+
+Output:
+
+```text
+dist/coffeeos-0.10.0-dev-amd64.iso
+dist/coffeeos-0.10.0-dev-amd64.iso.sha256
+```
+
+For the complete Deep path, build/stage CoffeeKernel and optimized packages first:
+
+```bash
+sudo bash scripts/build-coffeekernel-for-iso.sh
+sudo bash scripts/build-optimized-packages.sh --mode deep
+sudo bash scripts/build-iso.sh
+```
+
+The source package builders use persistent caches when `COFFEE_KERNEL_CACHE_DIR`, `COFFEE_OPT_CACHE_DIR`, `CCACHE_DIR`, and `COFFEE_LIVE_BUILD_CACHE_DIR` are configured.
+
+## Verify and boot-test
+
+```bash
+bash scripts/verify-iso.sh
+bash scripts/test-qemu.sh --bios
+bash scripts/test-qemu.sh --uefi
+```
+
+QEMU validation is a boot smoke test, not a substitute for physical AMD/Intel/NVIDIA hardware or gaming benchmarks.
+
+## CoffeeKernel
+
+CoffeeOS uses one CoffeeKernel rather than separate kernels for each performance mode. Runtime profiles are:
+
+```text
+lite
+balanced
+performance
+portable
+```
+
+The stock Debian kernel remains available as a recovery fallback.
+
+## Updates
+
+`scripts/make-update-repo.sh` builds the CoffeeOS APT repository metadata from generated `.deb` packages. Installed systems use Debian Stable for Debian packages and the signed CoffeeOS feed for CoffeeOS-specific packages.
+
+See `docs/UPDATES.md` and `docs/SECURITY.md` before publishing a repository.
+
+## Status
+
+CoffeeOS is still under development. Automated tests and QEMU smoke tests do not prove real-hardware GPU compatibility or performance. Do not treat unmeasured FPS, latency, power or thermal improvements as established results.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See `LICENSE`.

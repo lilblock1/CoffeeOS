@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+# The graphical greeter runs before a normal PAM login session exists, so give
+# _greetd access to the seatd socket/device groups rather than running it as root.
+if id _greetd >/dev/null 2>&1; then
+    usermod -aG video,input _greetd || true
+fi
+mkdir -p /etc/systemd/system/seatd.service.d
+cat > /etc/systemd/system/seatd.service.d/coffeeos.conf <<'EOF_SEATD'
+[Service]
+ExecStart=
+ExecStart=/usr/sbin/seatd -g video
+EOF_SEATD
+
+# Use a runtime greetd config. On a live boot it contains a one-shot
+# initial_session for the coffeeos user; installed systems get the normal
+# password greeter. Ordering after live-config ensures the live user exists.
+mkdir -p /etc/systemd/system/greetd.service.d
+cat > /etc/systemd/system/greetd.service.d/coffeeos.conf <<'EOF_GREETD'
+[Unit]
+Wants=live-config.service
+After=live-config.service seatd.service
+Requires=seatd.service
+
+[Service]
+ExecStartPre=/usr/local/sbin/coffee-greetd-config
+ExecStart=
+ExecStart=/usr/sbin/greetd --config /run/coffeeos/greetd.toml
+EOF_GREETD
+
+systemctl enable seatd.service
+systemctl enable greetd.service
+systemctl set-default graphical.target

@@ -1,0 +1,11 @@
+# CoffeeOS Phase 4 core gaming stack.
+# Keep heavyweight launchers and 32-bit compatibility optional so the live ISO
+# stays reasonably small. coffee-gaming-setup installs those on demand.
+gamemode
+mangohud
+libvulkan1
+mesa-vulkan-drivers
+vulkan-tools
+steam-devices
+joystick
+schedtool

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Screenshots are saved in Pictures, never uploaded to a server.
+set -eu
+command -v grim >/dev/null 2>&1 || exit 1
+pictures="${XDG_PICTURES_DIR:-$HOME/Pictures}"
+mkdir -p -- "$pictures"
+file="$pictures/coffeeos-$(date +%Y%m%d-%H%M%S).png"
+if command -v slurp >/dev/null 2>&1 && [ -n "${COFFEE_SELECT_SCREENSHOT:-}" ]; then
+    grim -g "$(slurp)" -- "$file"
+else
+    grim -- "$file"
+fi
+printf 'Screenshot: %s
+' "$file"

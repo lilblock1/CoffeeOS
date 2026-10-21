@@ -1,0 +1,12 @@
+[Unit]
+Description=CoffeeOS conservative storage scheduler tuning
+After=local-fs.target
+ConditionVirtualization=!container
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/coffee-storage-tune
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

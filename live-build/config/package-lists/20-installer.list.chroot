@@ -1,0 +1,8 @@
+# Install path is Debian-maintained Calamares settings; CoffeeOS-specific
+# partitioning and branding will come only after VM install validation.
+calamares
+calamares-settings-debian
+cryptsetup
+btrfs-progs
+e2fsprogs
+gparted

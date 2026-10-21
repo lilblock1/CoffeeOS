@@ -1,0 +1,12 @@
+label live-@FLAVOUR@
+	menu label ^Start CoffeeOS Live
+	menu default
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@
+
+label live-@FLAVOUR@-failsafe
+	menu label Start CoffeeOS Live (safe graphics)
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE_FAILSAFE@

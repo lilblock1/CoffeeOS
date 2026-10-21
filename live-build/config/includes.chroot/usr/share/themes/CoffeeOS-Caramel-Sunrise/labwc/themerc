@@ -1,0 +1,23 @@
+# CoffeeOS-Caramel-Sunrise: CoffeeOS native labwc theme
+border.width: 1
+padding.height: 7
+titlebar.height: 30
+window.active.border.color: #ffad4f
+window.inactive.border.color: #8a5230
+window.active.title.bg.color: #402116
+window.inactive.title.bg.color: #26150d
+window.active.label.text.color: #fff2df
+window.inactive.label.text.color: #d7b397
+window.active.button.unpressed.image.color: #ffd08b
+window.inactive.button.unpressed.image.color: #d7b397
+menu.items.bg.color: #26150d
+menu.items.text.color: #fff2df
+menu.items.active.bg.color: #70401f
+menu.items.active.text.color: #ffd08b
+menu.separator.color: #8a5230
+osd.bg.color: #402116
+osd.label.text.color: #fff2df
+window.active.shadow.size: 14
+window.inactive.shadow.size: 8
+window.active.shadow.color: #00000090
+window.inactive.shadow.color: #00000070

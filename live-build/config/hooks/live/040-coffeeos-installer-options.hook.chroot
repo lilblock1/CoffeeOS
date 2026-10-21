@@ -1,0 +1,73 @@
+#!/bin/sh
+set -eu
+
+# Keep i386 metadata ready for optional Steam/Wine choices. No optional gaming
+# packages are installed into the live image by this hook.
+if ! dpkg --print-foreign-architectures | grep -qx i386; then
+    dpkg --add-architecture i386
+fi
+
+SETTINGS=/etc/calamares/settings.conf
+[ -f "$SETTINGS" ] || { echo "CoffeeOS: Calamares settings.conf missing" >&2; exit 1; }
+[ -f /etc/calamares/modules/packagechooser-coffeeapps.conf ] || { echo "CoffeeOS: optional-software chooser missing" >&2; exit 1; }
+[ -f /usr/lib/calamares/modules/coffeeapps/module.desc ] || { echo "CoffeeOS: optional-software job module missing" >&2; exit 1; }
+
+python3 - "$SETTINGS" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+text = p.read_text(encoding='utf-8')
+if 'packagechooser@coffeeapps' in text and any(line.strip() == '- coffeeapps' for line in text.splitlines()):
+    raise SystemExit(0)
+
+lines = text.splitlines()
+try:
+    seq = next(i for i, line in enumerate(lines) if line.strip() == 'sequence:')
+except StopIteration:
+    raise SystemExit('CoffeeOS: Calamares settings has no sequence section')
+
+# Add only the packagechooser instance. The installer job is a dedicated
+# CoffeeOS Python module so it can run *after* Debian's sources-final step.
+# This avoids Debian's ordinary packages job trying to fetch optional software
+# from the read-only live-media repository earlier in the install.
+has_instances = any(line.strip() == 'instances:' for line in lines[:seq])
+instance_lines = [
+    '- id: coffeeapps',
+    '  module: packagechooser',
+    '  config: packagechooser-coffeeapps.conf',
+]
+if not any('packagechooser@coffeeapps' in line for line in lines[:seq]):
+    if has_instances:
+        lines[seq:seq] = instance_lines
+        seq += len(instance_lines)
+    else:
+        block = ['instances:'] + instance_lines + ['']
+        lines[seq:seq] = block
+        seq += len(block)
+
+# Add the optional-software UI before Summary.
+if not any(line.strip() == '- packagechooser@coffeeapps' for line in lines):
+    for i in range(seq, len(lines)):
+        if lines[i].strip() == '- summary':
+            indent = lines[i][:-len(lines[i].lstrip())]
+            lines.insert(i, indent + '- packagechooser@coffeeapps')
+            break
+    else:
+        raise SystemExit('CoffeeOS: could not locate Calamares summary page')
+
+# Install the selected packages after sources-final has replaced the temporary
+# live-media APT source with the normal Debian/CoffeeOS network repositories.
+if not any(line.strip() == '- coffeeapps' for line in lines):
+    for i, line in enumerate(lines):
+        if line.strip() == '- sources-final':
+            indent = line[:-len(line.lstrip())]
+            lines.insert(i + 1, indent + '- coffeeapps')
+            break
+    else:
+        raise SystemExit('CoffeeOS: could not locate Calamares sources-final job')
+
+p.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+PY
+
+echo 'CoffeeOS: Calamares optional-software page enabled (single ISO, network install after sources-final).'

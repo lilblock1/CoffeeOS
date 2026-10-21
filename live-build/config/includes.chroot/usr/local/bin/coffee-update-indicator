@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Small read-only Waybar status renderer for CoffeeOS updates."""
+from __future__ import annotations
+import json
+from pathlib import Path
+STATE=Path('/var/lib/coffeeos/update-status.json')
+try:
+    data=json.loads(STATE.read_text())
+except Exception:
+    data={}
+count=int(data.get('upgrade_count',0) or 0)
+coffee=int(data.get('coffeeos_upgrade_count',0) or 0)
+reboot=bool(data.get('reboot_required',False))
+last=data.get('checked_at','never')
+if reboot:
+    text='↻'
+    cls='reboot'
+    tooltip=f'Reboot recommended after updates. Last check: {last}'
+elif count:
+    text=f'↑ {count}'
+    cls='updates'
+    tooltip=f'{count} update(s) available, including {coffee} CoffeeOS update(s). Last check: {last}'
+else:
+    text=''
+    cls='ok'
+    tooltip=f'No cached updates. Last check: {last}'
+print(json.dumps({'text':text,'tooltip':tooltip,'class':cls},separators=(',',':')))

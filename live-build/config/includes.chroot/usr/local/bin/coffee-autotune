@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Recommend safe CoffeeOS profiles using detected hardware/power context."""
+import argparse, json, subprocess
+
+def hardware():
+    p=subprocess.run(['coffee-hardware-info','--json'],text=True,stdout=subprocess.PIPE,check=False)
+    return json.loads(p.stdout) if p.returncode==0 else {}
+def recommend(d,workload):
+    power=d.get('power',{}); ram=d.get('memory_gib',0)
+    if power.get('battery_present') and power.get('ac_online') is False and workload!='gaming': profile='portable'
+    elif workload=='gaming': profile='performance'
+    elif ram and ram <= 6: profile='lite'
+    else: profile='balanced'
+    return {'profile':profile,'memory_class':'low' if ram<=9 else ('mainstream' if ram<=17 else 'high'),
+            'cpu_feature_level':d.get('cpu',{}).get('feature_level','x86-64-v1'),
+            'sched_ext_supported':d.get('sched_ext',{}).get('supported',False)}
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument('--workload',choices=['general','gaming'],default='general'); ap.add_argument('--json',action='store_true'); a=ap.parse_args(); r=recommend(hardware(),a.workload)
+    if a.json: print(json.dumps(r,indent=2))
+    else:
+        print('Recommended CoffeeOS profile: '+r['profile'])
+        print('Memory class: '+r['memory_class']); print('CPU binary level: '+r['cpu_feature_level'])
+        print('sched_ext support: '+('yes' if r['sched_ext_supported'] else 'no'))
+if __name__=='__main__': main()

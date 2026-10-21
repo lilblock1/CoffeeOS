@@ -1,0 +1,42 @@
+#!/bin/sh
+# live-build calls auto/config from the working directory.
+set -eu
+MIRROR=${COFFEE_MIRROR:-http://deb.debian.org/debian/}
+SECURITY_MIRROR=${COFFEE_SECURITY_MIRROR:-http://security.debian.org/debian-security/}
+lb config noauto \
+  --mode debian \
+  --distribution trixie \
+  --architecture amd64 \
+  --system live \
+  --binary-image iso-hybrid \
+  --bootloaders 'syslinux grub-efi' \
+  --uefi-secure-boot disable \
+  --linux-packages linux-image \
+  --linux-flavours amd64 \
+  --archive-areas 'main contrib non-free non-free-firmware' \
+  --parent-archive-areas 'main contrib non-free non-free-firmware' \
+  --security true --updates true \
+  --apt-recommends false \
+  --apt-options '--yes -o Acquire::Languages=none -o Dpkg::Options::=--force-unsafe-io' \
+  --cache true \
+  --cache-packages true \
+  --cache-indices false \
+  --cache-stages bootstrap \
+  --chroot-squashfs-compression-type zstd \
+  --chroot-squashfs-compression-level 1 \
+  --firmware-chroot true \
+  --firmware-binary true \
+  --backports false \
+  --debian-installer none \
+  --iso-application 'CoffeeOS Live 0.10.0-dev' \
+  --iso-publisher 'CoffeeOS Community (unofficial Debian derivative)' \
+  --iso-volume 'COFFEEOS_LIVE' \
+  --image-name 'coffeeos' \
+  --mirror-bootstrap "$MIRROR" \
+  --mirror-chroot "$MIRROR" \
+  --mirror-binary "$MIRROR" \
+  --mirror-chroot-security "$SECURITY_MIRROR" \
+  --mirror-binary-security "$SECURITY_MIRROR" \
+  --bootappend-live 'boot=live components username=coffeeos user-fullname='CoffeeOS Live User' hostname=coffeeos console=ttyS0,115200n8 console=tty0' \
+  --bootappend-live-failsafe 'boot=live components username=coffeeos user-fullname='CoffeeOS Live User' hostname=coffeeos coffeeos.software-render=1 console=ttyS0,115200n8 console=tty0' \
+  "$@"

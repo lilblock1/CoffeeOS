@@ -1,0 +1,23 @@
+# CoffeeOS-Hazelnut-Mist: CoffeeOS native labwc theme
+border.width: 1
+padding.height: 7
+titlebar.height: 30
+window.active.border.color: #795035
+window.inactive.border.color: #a78361
+window.active.title.bg.color: #f5e7d4
+window.inactive.title.bg.color: #d9c2a4
+window.active.label.text.color: #35251e
+window.inactive.label.text.color: #6f5b4d
+window.active.button.unpressed.image.color: #a47250
+window.inactive.button.unpressed.image.color: #6f5b4d
+menu.items.bg.color: #d9c2a4
+menu.items.text.color: #35251e
+menu.items.active.bg.color: #c8aa87
+menu.items.active.text.color: #a47250
+menu.separator.color: #a78361
+osd.bg.color: #f5e7d4
+osd.label.text.color: #35251e
+window.active.shadow.size: 14
+window.inactive.shadow.size: 8
+window.active.shadow.color: #00000090
+window.inactive.shadow.color: #00000070

@@ -1,0 +1,6 @@
+CoffeeOS optimization policy
+- Keep broad x86-64 compatibility: never use -march=native in distributable packages.
+- Keep Debian hardening enabled.
+- Use LTO only for a curated package list and fall back to Debian packages if a rebuild fails.
+- Use -O3 only for selected leaf applications, not core ABI libraries or the Linux kernel.
+- Do not disable security, networking, cgroups, namespaces, mitigations, or hardware support for benchmark numbers.
