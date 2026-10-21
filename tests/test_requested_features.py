@@ -222,6 +222,17 @@ H: Handlers=sysrq kbd event3
         for page in ("'controllers'","'gpu'","'flatpak'"):
             self.assertIn(page,control)
 
+    def test_installer_uses_privileged_trixie_calamares_wrapper(self):
+        launcher=(BIN/'coffeeos-installer').read_text()
+        self.assertIn('calamares-install-debian', launcher)
+        self.assertIn('pkexec calamares', launcher)
+        self.assertNotIn('exec calamares "$@"', launcher)
+        preflight=(BIN/'coffee-installer-preflight').read_text()
+        self.assertIn("shutil.which('calamares-install-debian')", preflight)
+        self.assertIn("cmd=['pkexec','calamares']", preflight)
+        packages=set((ROOT/'live-build/config/package-lists/20-installer.list.chroot').read_text().split())
+        self.assertIn('calamares-settings-debian', packages)
+
     def test_iso_payload_verifier_covers_all_requested_features(self):
         verify=(ROOT/'scripts/verify-control-center-image.sh').read_text()
         for path in (
