@@ -4,9 +4,7 @@ CoffeeOS can now update an installed machine without reinstalling from a new ISO
 There are two independent update sources:
 
 1. **Debian 13 Trixie Stable** — security fixes and normal base-system packages.
-2. **CoffeeOS signed GitHub feed** — CoffeeOS-owned files, CoffeeKernel, and optimized
-   `+coffee` packages are served from the project's GitHub Pages APT repository
-   at `https://lilblock1.github.io/CoffeeOS`.
+2. **CoffeeOS GitHub Releases** — CoffeeOS-owned files and tested CoffeeKernel packages are published to moving `coffeeos-updates-dev`, `coffeeos-updates-beta`, and `coffeeos-updates-stable` releases in `lilblock1/CoffeeOS`.
 
 The live ISO refuses update installation. Updates are for installed systems only.
 
@@ -31,13 +29,15 @@ silently install updates.
 
 ## GitHub update source
 
-Installed CoffeeOS systems use `lilblock1/CoffeeOS` as their built-in update source. On the first installed-system check, CoffeeOS downloads the public OpenPGP key from the project's GitHub Pages deployment and configures APT with `Signed-By=`. The development image defaults to the `dev` channel.
+Installed CoffeeOS systems use `lilblock1/CoffeeOS` GitHub Releases as the built-in update source. The updater downloads the channel's `coffeeos-update.json` manifest over HTTPS, restricts package downloads to that repository's fixed update-release URL, verifies each SHA-256 checksum, and verifies the package name/version/architecture inside each `.deb` before installation.
+
+The development image defaults to:
 
 ```bash
 sudo coffee-update use-github dev
 ```
 
-`sudo coffee-update clear-feed` disables automatic GitHub updates without touching Debian Stable sources.
+`sudo coffee-update clear-feed` disables CoffeeOS GitHub updates without touching Debian Stable sources. No GitHub Pages setup or repository signing secret is required for the built-in source.
 
 ## Configure a custom CoffeeOS release feed
 
@@ -107,8 +107,6 @@ through standard APT/dpkg transactions rather than replacing the root filesystem
 
 ## GitHub publishing behavior
 
-CoffeeOS userspace changes can publish a new signed `coffeeos-system` package to the **Dev** GitHub Pages channel without building a new ISO. The package version includes the Git commit count, so APT sees each published source update as newer than the previous one.
+Normal CoffeeOS userspace changes update the single `coffeeos-updates-dev` GitHub Release instead of creating a new ISO or a new release each time. The `coffeeos-system` package version includes the Git commit count so the updater can compare versions correctly.
 
-A tested CoffeeKernel release also carries the current `coffeeos-system` package, allowing the signed GitHub feed to publish kernel and userspace updates together.
-
-For the built-in GitHub source, no signing secret is required: Actions can generate a short-lived signing key for each publication and deploy only its public half. CoffeeOS refreshes that public key over the official GitHub Pages HTTPS endpoint before each update check. If `COFFEEOS_GPG_PRIVATE_KEY` is configured, the publisher uses that persistent key instead.
+When a tested CoffeeKernel release is published, its `.deb` files are merged into the moving Dev update release. Manual workflow runs can promote tested package sets to Beta or Stable. The moving release contains a JSON manifest and SHA-256 list, and stale package assets are replaced rather than creating release spam.
