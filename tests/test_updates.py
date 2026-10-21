@@ -82,6 +82,8 @@ class TestInPlaceUpdates(unittest.TestCase):
         self.assertIn('coffeeos-update.json',workflow)
         self.assertIn('coffeeos-updates-$channel',workflow)
         self.assertIn('gh release upload',workflow)
+        self.assertIn("replace('~','_')",workflow)
+        self.assertIn('Published SHA256 mismatch',workflow)
         self.assertNotIn('actions/deploy-pages@v4',workflow)
         custom=(ROOT/'.github/workflows/build-custom-iso.yml').read_text()
         self.assertIn('live-build/config/packages.chroot/coffeeos-system_*.deb',custom)
