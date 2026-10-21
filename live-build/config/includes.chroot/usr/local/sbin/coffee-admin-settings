@@ -94,6 +94,15 @@ def install_feature(name):
     if name=='printing': run(['systemctl','enable','--now','cups.service'],check=False)
     print(f'{name} support installed.')
 
+def autologin_status():
+    enabled=False; user=''
+    try:
+        for line in AUTOLOGIN.read_text().splitlines():
+            if line.startswith('ENABLED='): enabled=line.split('=',1)[1].strip().lower()=='true'
+            elif line.startswith('USER='): user=line.split('=',1)[1].strip()
+    except OSError: pass
+    print(f"{'enabled' if enabled else 'disabled'}\t{user}")
+
 def autologin(state,user):
     root()
     try: entry=pwd.getpwnam(user)
@@ -152,7 +161,7 @@ def main():
     p=sp.add_parser('lid-set'); p.add_argument('action',choices=sorted(LID))
     sp.add_parser('time-status'); p=sp.add_parser('timezone-set'); p.add_argument('zone'); p=sp.add_parser('ntp-set'); p.add_argument('state',choices=('on','off')); p=sp.add_parser('locale-set'); p.add_argument('locale')
     p=sp.add_parser('install-feature'); p.add_argument('name',choices=('flatpak','printing'))
-    p=sp.add_parser('autologin'); p.add_argument('state',choices=('on','off')); p.add_argument('user')
+    sp.add_parser('autologin-status'); p=sp.add_parser('autologin'); p.add_argument('state',choices=('on','off')); p.add_argument('user')
     p=sp.add_parser('account-name'); p.add_argument('user'); p.add_argument('name')
     sp.add_parser('cleanup'); p=sp.add_parser('smart'); p.add_argument('device')
     sp.add_parser('recovery-status'); sp.add_parser('recovery-next')
@@ -166,6 +175,7 @@ def main():
     elif a.cmd=='ntp-set': ntp_set(a.state)
     elif a.cmd=='locale-set': locale_set(a.locale)
     elif a.cmd=='install-feature': install_feature(a.name)
+    elif a.cmd=='autologin-status': autologin_status()
     elif a.cmd=='autologin': autologin(a.state,a.user)
     elif a.cmd=='account-name': account_name(a.user,a.name)
     elif a.cmd=='cleanup': cleanup()

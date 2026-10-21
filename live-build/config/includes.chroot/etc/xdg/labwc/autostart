@@ -3,6 +3,7 @@
 # notification daemon to reduce background work while keeping network/polkit.
 dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE 2>/dev/null || true
 coffee-appearance refresh >/dev/null 2>&1 || true
+coffee-desktop-settings notifications-apply >/dev/null 2>&1 || true
 (sleep 1; coffee-hardware-settings display-restore >/dev/null 2>&1) &
 if [ "${COFFEE_GAMING_SESSION:-0}" != 1 ]; then
   coffee-wallpaper &
