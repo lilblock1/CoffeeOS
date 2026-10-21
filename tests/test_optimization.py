@@ -39,6 +39,7 @@ class TestOptimizationPipeline(unittest.TestCase):
         self.assertIn('dpkg-deb -f "$deb" Package',script)
 
         self.assertIn("! -name 'linux-image-*-coffee_*.deb'", script)
+        self.assertIn("! -name 'linux-headers-*-coffee_*.deb'", script)
         self.assertIn("! -name 'coffeeos-system_*.deb'", script)
 
 
