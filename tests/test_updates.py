@@ -62,7 +62,7 @@ class TestInPlaceUpdates(unittest.TestCase):
     def test_publisher_requires_signing_by_default(self):
         script=(ROOT/'scripts/make-update-repo.sh').read_text()
         self.assertIn("Signed update repositories require --key GPG_KEY_ID",script)
-        self.assertIn('gpg --batch --yes --default-key',script)
+        self.assertIn('gpg --batch --yes --local-user',script)
         self.assertIn('InRelease',script)
         self.assertIn('Release.gpg',script)
         self.assertIn('--unsigned',script)

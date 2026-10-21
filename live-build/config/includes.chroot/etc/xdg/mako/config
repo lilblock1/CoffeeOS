@@ -15,3 +15,6 @@ ignore-timeout=0
 
 [mode=gaming]
 invisible=1
+
+[mode=do-not-disturb]
+invisible=1
