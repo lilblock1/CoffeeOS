@@ -73,6 +73,8 @@ class TestInPlaceUpdates(unittest.TestCase):
         self.assertIn('build-coffeeos-system-package.sh',workflow)
         self.assertIn('coffeeos-update-key.gpg',workflow)
         self.assertIn('actions/deploy-pages@v4',workflow)
+        self.assertIn('short-lived GitHub update signing key',workflow)
+        self.assertIn('enablement: true',workflow)
         custom=(ROOT/'.github/workflows/build-custom-iso.yml').read_text()
         self.assertIn('live-build/config/packages.chroot/coffeeos-system_*.deb',custom)
 
