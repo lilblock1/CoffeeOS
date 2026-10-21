@@ -100,19 +100,34 @@ for exe in apt-get apt-cache dpkg dpkg-buildpackage dpkg-deb dpkg-parsechangelog
 done
 
 # apt source/build-dep requires deb-src metadata. This exists only in the build
-# builder and never enters the resulting CoffeeOS image.
-cat > /etc/apt/sources.list.d/coffeeos-build-src.sources <<'SRC'
+# builder and never enters the resulting CoffeeOS image. Reuse the exact
+# Signed-By keyring configured by the current Debian builder; Debian images may
+# use either the .pgp or .gpg archive-keyring filename and APT rejects duplicate
+# repository definitions that disagree on Signed-By.
+DEBIAN_ARCHIVE_KEYRING="$(
+  awk '/^Signed-By:[[:space:]]*/ {print $2; exit}' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true
+)"
+if [[ -z $DEBIAN_ARCHIVE_KEYRING ]]; then
+  for candidate in /usr/share/keyrings/debian-archive-keyring.pgp /usr/share/keyrings/debian-archive-keyring.gpg; do
+    [[ -r $candidate ]] && { DEBIAN_ARCHIVE_KEYRING=$candidate; break; }
+  done
+fi
+[[ -n $DEBIAN_ARCHIVE_KEYRING && -r $DEBIAN_ARCHIVE_KEYRING ]] || {
+  echo 'Cannot locate the Debian archive keyring used by the build environment.' >&2
+  exit 3
+}
+cat > /etc/apt/sources.list.d/coffeeos-build-src.sources <<SRC
 Types: deb-src
 URIs: http://deb.debian.org/debian
 Suites: trixie trixie-updates
 Components: main contrib non-free non-free-firmware
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+Signed-By: $DEBIAN_ARCHIVE_KEYRING
 
 Types: deb-src
 URIs: http://security.debian.org/debian-security
 Suites: trixie-security
 Components: main contrib non-free non-free-firmware
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+Signed-By: $DEBIAN_ARCHIVE_KEYRING
 SRC
 export DEBIAN_FRONTEND=noninteractive
 apt-get -o Acquire::Languages=none update
