@@ -1,8 +1,6 @@
 # CoffeeOS ISO request
 
-Retry after fixing CoffeeKernel selection at the live-build configuration layer.
-CoffeeKernel is now the first live-build kernel flavour, its initrd is explicitly
-created before binary generation, and the binary hook verifies both /live files
-and generated GRUB/Syslinux references.
+Retry after fixing CoffeeKernel live-build package-prefix/flavour mapping and
+updating the validation tests to match the corrected configuration.
 
 Requested: 2026-10-21
