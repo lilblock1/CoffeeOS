@@ -26,6 +26,8 @@ class TestBootRecipe(unittest.TestCase):
         verify=(ROOT/'scripts/verify-iso.sh').read_text()
         self.assertIn("BIOS default label '$bios_default' does not exist in live.cfg.", verify)
         self.assertIn('BIOS Syslinux labels verified', verify)
+        validate=(ROOT/'scripts/validate.sh').read_text()
+        self.assertIn('*.hook.binary', validate)
 
     def test_uefi_grub_is_text_mode_with_timeout(self):
         cfg=(LB/'config/bootloaders/grub-pc/config.cfg').read_text()
