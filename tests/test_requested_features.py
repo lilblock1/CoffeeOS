@@ -226,7 +226,7 @@ H: Handlers=sysrq kbd event3
         launcher=(BIN/'coffeeos-installer').read_text()
         self.assertIn('calamares-install-debian', launcher)
         self.assertIn('pkexec calamares', launcher)
-        self.assertNotIn('exec calamares "$@"', launcher)
+        self.assertNotIn('\n  exec calamares "$@"\n', launcher)
         preflight=(BIN/'coffee-installer-preflight').read_text()
         self.assertIn("shutil.which('calamares-install-debian')", preflight)
         self.assertIn("cmd=['pkexec','calamares']", preflight)
