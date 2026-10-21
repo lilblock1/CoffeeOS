@@ -206,7 +206,7 @@ jobs:
                       mkdir -p "$tmp"
                       cp -f -- "${seed_images[0]}" "${seed_headers[0]}" "$seed/SHA256SUMS" "$tmp/"
                       release_tag="$(cat "$seed/.release-tag")"
-                      printf '%s\n' "{\"source\":\"github-release\",\"release\":\"$release_tag\",\"debian_source_version\":\"$source_version\",\"cache_key\":\"$key\"}" > "$tmp/build-info.json"
+                      printf "%s\\n" "{\"source\":\"github-release\",\"release\":\"$release_tag\",\"debian_source_version\":\"$source_version\",\"cache_key\":\"$key\"}" > "$tmp/build-info.json"
                       if (cd "$tmp" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
                         rm -rf "$cache"
                         mv "$tmp" "$cache"
