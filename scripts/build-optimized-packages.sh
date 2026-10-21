@@ -73,7 +73,7 @@ mkdir -p "$PKGDIR" "$REPORT" "$CACHE_DIR" "$CCACHE_DIR"
 # The CoffeeKernel wrapper runs before this script and stages its image .deb in
 # packages.chroot. Clean stale optimized application/library packages without
 # deleting the already-built CoffeeKernel or CoffeeOS system package.
-find "$PKGDIR" -maxdepth 1 -type f -name '*.deb' ! -name 'linux-image-*-coffee_*.deb' ! -name 'coffeeos-system_*.deb' -delete
+find "$PKGDIR" -maxdepth 1 -type f -name '*.deb' ! -name 'linux-image-*-coffee_*.deb' ! -name 'linux-headers-*-coffee_*.deb' ! -name 'coffeeos-system_*.deb' -delete
 rm -rf "$WORK"
 mkdir -p "$WORK"
 printf 'source\ttier\toptimization\tresult\tbinaries\n' > "$STATUS"
