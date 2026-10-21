@@ -14,6 +14,7 @@ on:
       - scripts/build-iso.sh
       - scripts/build-coffeeos-system-package.sh
       - scripts/build-coffeekernel-for-iso.sh
+      - scripts/build-optimized-packages.sh
       - scripts/build-kernel.sh
       - kernel/**
       - optimization/**
@@ -87,7 +88,7 @@ jobs:
           # installer, kernel or image build inputs. Pure docs/tests/CI changes
           # intentionally do not advance the ISO counter.
           major_count="$(
-            git rev-list "$range" --               live-build               kernel               optimization               scripts/build-iso.sh               scripts/build-coffeeos-system-package.sh               scripts/build-coffeekernel-for-iso.sh               scripts/build-kernel.sh               | wc -l               | tr -d ' '
+            git rev-list "$range" --               live-build               kernel               optimization               scripts/build-iso.sh               scripts/build-coffeeos-system-package.sh               scripts/build-coffeekernel-for-iso.sh               scripts/build-optimized-packages.sh               scripts/build-kernel.sh               | wc -l               | tr -d ' '
           )"
 
           echo "major_count=$major_count" >> "$GITHUB_OUTPUT"
@@ -133,6 +134,18 @@ jobs:
           key: coffeekernel-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kernel/configs/coffee.conf', 'kernel/tools/configure.py', 'scripts/build-kernel.sh', 'scripts/build-coffeekernel-for-iso.sh', 'optimization/cache-policy.conf') }}-${{ github.run_id }}
           restore-keys: |
             coffeekernel-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kernel/configs/coffee.conf', 'kernel/tools/configure.py', 'scripts/build-kernel.sh', 'scripts/build-coffeekernel-for-iso.sh', 'optimization/cache-policy.conf') }}-
+
+      - name: Restore reusable Deep optimization cache
+        id: deep-opt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/optimized-packages
+          # The optimized-package builder has its own source-version/content
+          # keys inside this directory. This outer Actions key only separates
+          # incompatible CoffeeOS optimization policies.
+          key: coffeeopt-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('optimization/packages.tsv', 'optimization/cache-policy.conf', 'scripts/build-optimized-packages.sh') }}-${{ github.run_id }}
+          restore-keys: |
+            coffeeopt-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('optimization/packages.tsv', 'optimization/cache-policy.conf', 'scripts/build-optimized-packages.sh') }}-
 
       - name: Seed cache from latest CoffeeKernel release
         env:
@@ -230,6 +243,8 @@ jobs:
             -e DEBIAN_FRONTEND=noninteractive \
             -e COFFEE_KERNEL_JOBS=2 \
             -e COFFEE_KERNEL_CACHE_DIR=/workspace/.cache/coffeekernel \
+            -e COFFEE_OPT_CACHE_DIR=/workspace/.cache/optimized-packages \
+            -e COFFEE_CCACHE_MAXSIZE=5G \
             -e CCACHE_DIR=/workspace/.cache/ccache \
             debian:trixie \
             bash -lc '
@@ -311,7 +326,7 @@ jobs:
 
               rm -rf optimized-kernel-build dist/kernels/coffee build
               rm -f live-build/config/packages.chroot/linux-image-*-coffee_*.deb 2>/dev/null || true
-              mkdir -p .cache/coffeekernel .cache/ccache dist
+              mkdir -p .cache/coffeekernel .cache/optimized-packages .cache/ccache dist
 
               echo "[CoffeeOS] Restoring or compiling CoffeeKernel..."
               bash scripts/build-coffeekernel-for-iso.sh --mode deep --jobs 2 \
@@ -322,7 +337,13 @@ jobs:
               (cd dist/kernels/coffee && sha256sum -c SHA256SUMS)
               cat live-build/config/includes.chroot/usr/share/coffeeos/kernel-build-status.txt
 
-              echo "[CoffeeOS] Building ISO with CoffeeKernel staged..."
+              echo "[CoffeeOS] Restoring or compiling Deep optimized userspace packages..."
+              bash scripts/build-optimized-packages.sh --mode deep \
+                2>&1 | tee dist/github-deep-optimization-build.log
+              echo "[CoffeeOS] Deep optimization manifest:"
+              cat dist/optimized/STATUS.tsv
+
+              echo "[CoffeeOS] Building ISO with CoffeeKernel and Deep optimized packages staged..."
               bash scripts/build-iso.sh \
                 2>&1 | tee dist/github-custom-iso-build.log
             '
@@ -344,6 +365,24 @@ jobs:
         with:
           path: .cache/coffeekernel
           key: coffeekernel-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('kernel/configs/coffee.conf', 'kernel/tools/configure.py', 'scripts/build-kernel.sh', 'scripts/build-coffeekernel-for-iso.sh', 'optimization/cache-policy.conf') }}-${{ github.run_id }}
+
+      - name: Detect reusable Deep optimization cache
+        id: deep-opt-cache-ready
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          if find .cache/optimized-packages -mindepth 3 -maxdepth 3 -type f -name SHA256SUMS -print -quit 2>/dev/null | grep -q .; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save reusable Deep optimization cache
+        if: always() && steps.deep-opt-cache-ready.outputs.ready == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/optimized-packages
+          key: coffeeopt-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('optimization/packages.tsv', 'optimization/cache-policy.conf', 'scripts/build-optimized-packages.sh') }}-${{ github.run_id }}
 
       - name: Verify CoffeeKernel is staged
         run: |
@@ -394,6 +433,8 @@ jobs:
             dist/kernels/coffee/build-info.json
             live-build/config/packages.chroot/coffeeos-system_*.deb
             dist/github-coffeekernel-build.log
+            dist/github-deep-optimization-build.log
+            dist/optimized/STATUS.tsv
             dist/github-custom-iso-build.log
             dist/iso-boot-layout.txt
           compression-level: 0
@@ -412,6 +453,7 @@ jobs:
             dist/kernels/coffee/linux-headers-*-coffee_*.deb \
             dist/kernels/coffee/SHA256SUMS \
             dist/kernels/coffee/build-info.json \
+            dist/optimized/STATUS.tsv \
             live-build/config/packages.chroot/coffeeos-system_*.deb \
             --title "CoffeeOS CoffeeKernel ISO ${GITHUB_RUN_NUMBER}" \
-            --notes "CoffeeOS development ISO built after the configured 20-meaningful-update cadence or an explicit maintainer request. Built on Debian 13 Trixie with a verified CoffeeKernel package pair. CoffeeKernel is reused from the persistent cache or a compatible prior release when kernel inputs are unchanged, and rebuilt automatically when required. Secure Boot support is not enabled for this development image."
+            --notes "CoffeeOS development ISO built after the configured 20-meaningful-update cadence or an explicit maintainer request. Built on Debian 13 Trixie with a verified CoffeeKernel package pair and cached Deep userspace optimizations. Core and Deep source packages are rebuilt with CoffeeOS LTO/O3 policy when compatible, cached by Debian source version and policy, and safely fall back to Debian binaries per package if a rebuild is unavailable. Secure Boot support is not enabled for this development image."
