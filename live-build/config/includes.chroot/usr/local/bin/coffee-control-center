@@ -166,7 +166,7 @@ class CoffeeControlCenter(Gtk.Window):
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,
                                transition_duration=120)
         sidebar = Gtk.StackSidebar(stack=self.stack)
-        sidebar.set_size_request(180, -1)
+        sidebar.set_size_request(210, -1)
         body.pack_start(sidebar, False, False, 0)
         body.pack_start(self.stack, True, True, 0)
 
@@ -174,6 +174,11 @@ class CoffeeControlCenter(Gtk.Window):
         self.add_page('display', 'Display', self.display_page())
         self.add_page('bluetooth', 'Bluetooth', self.bluetooth_page())
         self.add_page('audio', 'Audio', self.audio_page())
+        self.add_page('power', 'Power & Battery', self.power_page())
+        self.add_page('input', 'Input & Region', self.input_region_page())
+        self.add_page('security', 'Account & Security', self.security_page())
+        self.add_page('apps', 'Apps & Startup', self.apps_page())
+        self.add_page('system', 'System & Recovery', self.system_page())
         self.add_page('performance', 'Performance', self.performance_page())
         self.add_page('gaming', 'Gaming', self.gaming_page())
         self.add_page('appearance', 'Appearance', self.appearance_page())
@@ -192,7 +197,7 @@ class CoffeeControlCenter(Gtk.Window):
         scroll = Gtk.ScrolledWindow(); scroll.set_min_content_height(100); scroll.add(self.log)
         expander.add(scroll); bottom.pack_start(expander, False, True, 0)
 
-        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_performance(); self.refresh_software(); self.refresh_updates()
+        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_power(); self.refresh_input_region(); self.refresh_security(); self.refresh_apps(); self.refresh_system(); self.refresh_performance(); self.refresh_gaming_devices(); self.refresh_software(); self.refresh_updates()
 
     def add_page(self, name, title, widget):
         scroll = Gtk.ScrolledWindow(); scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -414,6 +419,237 @@ class CoffeeControlCenter(Gtk.Window):
         if rc!=0: self.set_status(out or 'Could not change mute state.')
 
 
+
+    # Power & Battery
+    def power_page(self):
+        box=self.page_box(); box.pack_start(self.label('Power & Battery','title'),False,False,0)
+        box.pack_start(self.label('Locking and suspend use lightweight Wayland session services. CoffeeOS performance profiles remain separate and reversible.','muted'),False,False,0)
+        self.power_battery=self.label(''); box.pack_start(self.power_battery,False,False,0)
+        self.power_lock=Gtk.SpinButton.new_with_range(0,240,1); self.row(box,'Auto-lock','Minutes before locking. 0 disables automatic locking.',self.power_lock)
+        self.power_suspend=Gtk.SpinButton.new_with_range(0,480,5); self.row(box,'Auto-suspend','Minutes before suspend. 0 disables automatic suspend.',self.power_suspend)
+        self.power_before_sleep=Gtk.Switch(); self.row(box,'Lock before sleep','Lock the session whenever the system is suspended.',self.power_before_sleep)
+        buttons=Gtk.Box(spacing=8); buttons.pack_start(self.button('Apply Idle Settings',self.apply_power,True),False,False,0); buttons.pack_start(self.button('Lock Now',lambda *_:self.launch(['coffee-lock'])),False,False,0); buttons.pack_start(self.button('Suspend Now',lambda *_:self.launch(['systemctl','suspend'])),False,False,0); box.pack_start(buttons,False,False,0)
+        self.section(box,'Laptop lid')
+        self.lid_action=Gtk.ComboBoxText()
+        for value,label in (('suspend','Suspend'),('lock','Lock'),('ignore','Do nothing'),('poweroff','Shut down')): self.lid_action.append(value,label)
+        self.lid_action.set_active_id('suspend'); self.row(box,'When lid closes','Saved system-wide; applies fully after the next reboot/login-manager restart.',self.lid_action)
+        box.pack_start(self.button('Save Lid Behavior',self.apply_lid),False,False,0)
+        return box
+    def refresh_power(self):
+        rc,raw=capture(['coffee-desktop-settings','power-status'],5)
+        try: data=json.loads(raw) if rc==0 else {}
+        except ValueError: data={}
+        self.power_lock.set_value(int(data.get('lock_minutes',10))); self.power_suspend.set_value(int(data.get('suspend_minutes',0))); self.power_before_sleep.set_active(bool(data.get('lock_before_sleep',True)))
+        batteries=data.get('batteries',[])
+        if not batteries: self.power_battery.set_text('Battery: no battery detected (desktop/VM or unsupported hardware).')
+        else:
+            parts=[]
+            for b in batteries:
+                health=''
+                try:
+                    full=float(b.get('energy_full') or b.get('charge_full') or 0); design=float(b.get('energy_full_design') or b.get('charge_full_design') or 0)
+                    if full and design: health=f' · health {min(100,full/design*100):.0f}%'
+                except (ValueError,TypeError,ZeroDivisionError): pass
+                parts.append(f"{b.get('name')}: {b.get('capacity',0)}% · {b.get('status','Unknown')}{health}")
+            self.power_battery.set_text('\n'.join(parts))
+    def apply_power(self,*_):
+        self.action('Save power settings',['coffee-desktop-settings','power-set','--lock',str(self.power_lock.get_value_as_int()),'--suspend',str(self.power_suspend.get_value_as_int()),'--before-sleep','on' if self.power_before_sleep.get_active() else 'off'],lambda _rc:self.refresh_power())
+    def apply_lid(self,*_):
+        action=self.lid_action.get_active_id() or 'suspend'
+        if self.confirm('Change lid behavior?',f'Set laptop lid close behavior to {action}?'):
+            self.action('Save lid behavior',['pkexec','/usr/local/sbin/coffee-admin-settings','lid-set',action])
+
+    # Input, date and region
+    def input_region_page(self):
+        box=self.page_box(); box.pack_start(self.label('Input & Region','title'),False,False,0)
+        self.input_pointer=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,-1.0,1.0,0.05); self.input_pointer.set_value_pos(Gtk.PositionType.RIGHT); self.row(box,'Pointer speed','-1 is slow, +1 is fast.',self.input_pointer)
+        self.input_natural=Gtk.Switch(); self.row(box,'Natural scrolling','Reverse scrolling direction for touchpads/mice.',self.input_natural)
+        self.input_tap=Gtk.Switch(); self.row(box,'Tap to click','Enable touchpad tap-to-click.',self.input_tap)
+        self.input_rate=Gtk.SpinButton.new_with_range(1,100,1); self.row(box,'Keyboard repeat rate','Characters per second while a key is held.',self.input_rate)
+        self.input_delay=Gtk.SpinButton.new_with_range(100,2000,25); self.row(box,'Keyboard repeat delay','Milliseconds before key repeat begins.',self.input_delay)
+        self.input_layout=Gtk.Entry(); self.input_layout.set_placeholder_text('us'); self.row(box,'Keyboard layout','XKB layout code; takes full effect next session.',self.input_layout)
+        box.pack_start(self.button('Apply Input Settings',self.apply_input,True),False,False,0)
+        self.section(box,'Date, time & region')
+        self.time_status=self.label(''); box.pack_start(self.time_status,False,False,0)
+        self.timezone=Gtk.Entry(); self.timezone.set_placeholder_text('America/Chicago'); self.row(box,'Timezone','IANA timezone such as America/Chicago.',self.timezone)
+        self.ntp=Gtk.Switch(); self.row(box,'Automatic network time','Use systemd time synchronization.',self.ntp)
+        self.locale_entry=Gtk.Entry(); self.locale_entry.set_placeholder_text('en_US.UTF-8'); self.row(box,'Locale','Must already be generated on the system.',self.locale_entry)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Apply Timezone',self.apply_timezone),False,False,0); row.pack_start(self.button('Apply Network Time',self.apply_ntp),False,False,0); row.pack_start(self.button('Apply Locale',self.apply_locale),False,False,0); box.pack_start(row,False,False,0)
+        return box
+    def refresh_input_region(self):
+        rc,raw=capture(['coffee-desktop-settings','input-show'],4)
+        try: data=json.loads(raw) if rc==0 else {}
+        except ValueError: data={}
+        self.input_pointer.set_value(float(data.get('pointer_speed',0.0))); self.input_natural.set_active(bool(data.get('natural_scroll',False))); self.input_tap.set_active(bool(data.get('tap',True))); self.input_rate.set_value(int(data.get('repeat_rate',25))); self.input_delay.set_value(int(data.get('repeat_delay',600))); self.input_layout.set_text(data.get('layout','us'))
+        rc,out=capture(['coffee-admin-settings','time-status'],4); values={}
+        if rc==0:
+            for line in out.splitlines():
+                if '=' in line: k,v=line.split('=',1); values[k]=v
+        self.time_status.set_text(f"Timezone: {values.get('Timezone','unknown')} · NTP: {values.get('NTP','unknown')} · synchronized: {values.get('NTPSynchronized','unknown')}")
+        self.timezone.set_text(values.get('Timezone',''))
+        self.ntp.set_active(values.get('NTP','no')=='yes')
+        self.locale_entry.set_text(os.environ.get('LANG',''))
+    def apply_input(self,*_):
+        self.action('Apply input settings',['coffee-desktop-settings','input-set','--pointer-speed',f'{self.input_pointer.get_value():.2f}','--natural-scroll','on' if self.input_natural.get_active() else 'off','--tap','on' if self.input_tap.get_active() else 'off','--repeat-rate',str(self.input_rate.get_value_as_int()),'--repeat-delay',str(self.input_delay.get_value_as_int()),'--layout',self.input_layout.get_text().strip() or 'us'])
+    def apply_timezone(self,*_):
+        zone=self.timezone.get_text().strip()
+        if zone: self.action('Set timezone',['pkexec','/usr/local/sbin/coffee-admin-settings','timezone-set',zone],lambda _rc:self.refresh_input_region())
+    def apply_ntp(self,*_):
+        self.action('Set network time',['pkexec','/usr/local/sbin/coffee-admin-settings','ntp-set','on' if self.ntp.get_active() else 'off'],lambda _rc:self.refresh_input_region())
+    def apply_locale(self,*_):
+        locale=self.locale_entry.get_text().strip()
+        if locale: self.action('Set locale',['pkexec','/usr/local/sbin/coffee-admin-settings','locale-set',locale])
+
+    # Account, firewall and notifications
+    def security_page(self):
+        box=self.page_box(); box.pack_start(self.label('Account & Security','title'),False,False,0)
+        self.account_status=self.label(''); box.pack_start(self.account_status,False,False,0)
+        self.account_name=Gtk.Entry(); self.row(box,'Display name','Friendly name shown by account-aware applications.',self.account_name)
+        self.account_autologin=Gtk.Switch(); self.row(box,'Automatic login','Opt-in only. Root accounts are never allowed.',self.account_autologin)
+        ar=Gtk.Box(spacing=8); ar.pack_start(self.button('Save Account Settings',self.apply_account,True),False,False,0); ar.pack_start(self.button('Choose Avatar',self.choose_avatar),False,False,0); ar.pack_start(self.button('Change Password',lambda *_:self.launch(['foot','-e','passwd'])),False,False,0); box.pack_start(ar,False,False,0)
+        self.section(box,'Firewall')
+        self.firewall_status=self.label(''); box.pack_start(self.firewall_status,False,False,0)
+        fr=Gtk.Box(spacing=8); fr.pack_start(self.button('Enable Firewall',self.enable_firewall,True),False,False,0); fr.pack_start(self.button('Disable CoffeeOS Rules',self.disable_firewall),False,False,0); box.pack_start(fr,False,False,0)
+        self.section(box,'Notifications')
+        self.notify_dnd=Gtk.Switch(); self.row(box,'Do Not Disturb','Hide normal desktop notifications until turned off. Gaming Mode also suppresses notifications automatically.',self.notify_dnd)
+        self.notify_timeout=Gtk.SpinButton.new_with_range(1000,60000,500); self.row(box,'Notification timeout','Milliseconds before normal notifications disappear.',self.notify_timeout)
+        box.pack_start(self.button('Apply Notification Settings',self.apply_notifications),False,False,0)
+        return box
+    def refresh_security(self):
+        rc,raw=capture(['coffee-desktop-settings','account'],4)
+        try: account=json.loads(raw) if rc==0 else {}
+        except ValueError: account={}
+        self.account_user=account.get('username',''); self.account_name.set_text(account.get('display_name','')); self.account_status.set_text(f"User: {self.account_user or 'unknown'} · Avatar: {account.get('avatar') or 'default'}")
+        rc,out=capture(['coffee-admin-settings','autologin-status'],4); enabled=False; user=''
+        if rc==0:
+            fields=out.split('\t',1); enabled=fields[0]=='enabled'; user=fields[1] if len(fields)>1 else ''
+        self.account_updating=True; self.account_autologin.set_active(enabled and user==self.account_user); self.account_updating=False
+        rc,out=capture(['coffee-admin-settings','firewall-status'],4); self.firewall_status.set_text('CoffeeOS firewall: '+(out or 'unknown'))
+        rc,raw=capture(['coffee-desktop-settings','notifications-show'],4)
+        try: n=json.loads(raw) if rc==0 else {}
+        except ValueError: n={}
+        self.notify_dnd.set_active(bool(n.get('dnd',False))); self.notify_timeout.set_value(int(n.get('timeout_ms',6000)))
+    def apply_account(self,*_):
+        user=getattr(self,'account_user','')
+        if not user: return
+        name=self.account_name.get_text().strip()
+        desired='on' if self.account_autologin.get_active() else 'off'
+        self.action('Save account settings',['pkexec','/usr/local/sbin/coffee-admin-settings','account-name',user,name],lambda rc:self.apply_autologin_after_name(rc,user,desired))
+    def apply_autologin_after_name(self,rc,user,state):
+        if rc==0: self.action('Save automatic login',['pkexec','/usr/local/sbin/coffee-admin-settings','autologin',state,user],lambda _rc:self.refresh_security())
+    def choose_avatar(self,*_):
+        d=Gtk.FileChooserDialog(title='Choose account avatar',parent=self,action=Gtk.FileChooserAction.OPEN); d.add_buttons(Gtk.STOCK_CANCEL,Gtk.ResponseType.CANCEL,Gtk.STOCK_OPEN,Gtk.ResponseType.OK); flt=Gtk.FileFilter(); flt.set_name('Images'); flt.add_pixbuf_formats(); d.add_filter(flt)
+        if d.run()==Gtk.ResponseType.OK:
+            rc,out=capture(['coffee-desktop-settings','avatar',d.get_filename()],5); self.set_status(out if rc==0 else 'Avatar change failed: '+out); self.refresh_security()
+        d.destroy()
+    def enable_firewall(self,*_):
+        if self.confirm('Enable CoffeeOS firewall?','Block unsolicited inbound traffic while keeping outbound traffic, loopback, established connections, ICMP and DHCP working.'):
+            self.action('Enable firewall',['pkexec','/usr/local/sbin/coffee-admin-settings','firewall-enable'],lambda _rc:self.refresh_security())
+    def disable_firewall(self,*_):
+        if self.confirm('Disable CoffeeOS firewall rules?','Only the CoffeeOS nftables table will be removed; unrelated firewall rules are left untouched.'):
+            self.action('Disable CoffeeOS firewall',['pkexec','/usr/local/sbin/coffee-admin-settings','firewall-disable'],lambda _rc:self.refresh_security())
+    def apply_notifications(self,*_):
+        self.action('Save notification settings',['coffee-desktop-settings','notifications-set','--dnd','on' if self.notify_dnd.get_active() else 'off','--timeout',str(self.notify_timeout.get_value_as_int())],lambda _rc:self.refresh_security())
+
+    # Applications, defaults and startup
+    def apps_page(self):
+        box=self.page_box(); box.pack_start(self.label('Apps & Startup','title'),False,False,0)
+        self.section(box,'Default applications')
+        self.default_browser=Gtk.ComboBoxText(); self.row(box,'Web browser','Default for web links and HTML.',self.default_browser)
+        self.default_text=Gtk.ComboBoxText(); self.row(box,'Text editor','Default for plain text files.',self.default_text)
+        self.default_image=Gtk.ComboBoxText(); self.row(box,'Image viewer','Default for PNG/JPEG images.',self.default_image)
+        box.pack_start(self.button('Apply Default Apps',self.apply_defaults,True),False,False,0)
+        self.section(box,'Startup applications')
+        self.startup_list=Gtk.ListBox(); self.startup_list.set_selection_mode(Gtk.SelectionMode.NONE); box.pack_start(self.startup_list,False,False,0)
+        box.pack_start(self.button('Refresh Startup Apps',lambda *_:self.refresh_apps()),False,False,0)
+        self.section(box,'Optional desktop features')
+        feature=Gtk.Box(spacing=8); feature.pack_start(self.button('Install Flatpak + Flathub',self.install_flatpak),False,False,0); feature.pack_start(self.button('Install Printing Support',self.install_printing),False,False,0); box.pack_start(feature,False,False,0)
+        box.pack_start(self.label('Flatpak and printer services stay out of the base image until you choose to install them. Removable drives are handled automatically by udiskie.', 'muted'),False,False,0)
+        return box
+    def refresh_apps(self):
+        rc,raw=capture(['coffee-desktop-settings','defaults'],8)
+        try: data=json.loads(raw) if rc==0 else {}
+        except ValueError: data={}
+        mapping=(('browser',self.default_browser),('text',self.default_text),('image',self.default_image))
+        for kind,combo in mapping:
+            combo.remove_all()
+            for item in data.get('apps',{}).get(kind,[]): combo.append(item['id'],item['name'])
+            current=data.get('current',{}).get(kind,'')
+            if current: combo.set_active_id(current)
+            elif combo.get_model() is not None: combo.set_active(0)
+        rc,raw=capture(['coffee-desktop-settings','startup-list'],8)
+        try: items=json.loads(raw) if rc==0 else []
+        except ValueError: items=[]
+        for child in self.startup_list.get_children(): self.startup_list.remove(child)
+        for item in items:
+            row=Gtk.ListBoxRow(); inner=Gtk.Box(spacing=8); inner.set_border_width(8); row.add(inner); labels=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=2); labels.pack_start(self.label(item.get('name',item.get('id',''))),False,False,0); labels.pack_start(self.label(item.get('id',''),'muted'),False,False,0); inner.pack_start(labels,True,True,0); sw=Gtk.Switch(); sw.set_active(bool(item.get('enabled'))); sw.connect('notify::active',self.startup_toggle,item.get('id','')); inner.pack_end(sw,False,False,0); self.startup_list.add(row)
+        self.startup_list.show_all()
+    def startup_toggle(self,widget,_param,desktop_id):
+        if desktop_id: self.action('Update startup application',['coffee-desktop-settings','startup-toggle',desktop_id,'on' if widget.get_active() else 'off'])
+    def apply_defaults(self,*_):
+        choices=[('browser',self.default_browser.get_active_id()),('text',self.default_text.get_active_id()),('image',self.default_image.get_active_id())]
+        outputs=[]
+        for kind,desktop in choices:
+            if desktop:
+                rc,out=capture(['coffee-desktop-settings','default-set',kind,desktop],5); outputs.append(out or f'{kind}: '+('ok' if rc==0 else 'failed'))
+        self.set_status('Default applications updated.'); self.set_log('\n'.join(outputs))
+    def install_flatpak(self,*_):
+        if self.confirm('Install Flatpak?','Install Flatpak system packages, then enable Flathub for your user?'):
+            self.action('Install Flatpak',['pkexec','/usr/local/sbin/coffee-admin-settings','install-feature','flatpak'],self.finish_flatpak_install)
+    def finish_flatpak_install(self,rc):
+        if rc==0:
+            r,o=capture(['coffee-desktop-settings','flatpak-enable-flathub'],30); self.set_log((self.log.get_buffer().get_text(self.log.get_buffer().get_start_iter(),self.log.get_buffer().get_end_iter(),True)+'\n'+o).strip()); self.set_status('Flatpak and Flathub configured.' if r==0 else 'Flatpak installed; Flathub setup failed.')
+    def install_printing(self,*_):
+        if self.confirm('Install printing support?','This installs CUPS, printer drivers and the graphical printer configuration tool.'):
+            self.action('Install printing support',['pkexec','/usr/local/sbin/coffee-admin-settings','install-feature','printing'])
+
+    # Storage, kernel and recovery
+    def system_page(self):
+        box=self.page_box(); box.pack_start(self.label('System & Recovery','title'),False,False,0)
+        self.system_about=self.label(''); box.pack_start(self.system_about,False,False,0)
+        self.section(box,'Storage')
+        self.storage_status=self.label(''); box.pack_start(self.storage_status,False,False,0)
+        self.smart_device=Gtk.Entry(); self.smart_device.set_placeholder_text('/dev/nvme0n1'); self.row(box,'SMART device','Physical SATA/NVMe device to inspect.',self.smart_device)
+        sr=Gtk.Box(spacing=8); sr.pack_start(self.button('Refresh Storage',lambda *_:self.refresh_system()),False,False,0); sr.pack_start(self.button('Clean User Cache',self.clean_user),False,False,0); sr.pack_start(self.button('System Cleanup',self.clean_system),False,False,0); sr.pack_start(self.button('SMART Health',self.smart_health),False,False,0); box.pack_start(sr,False,False,0)
+        self.section(box,'Kernel & recovery')
+        self.recovery_status=self.label(''); box.pack_start(self.recovery_status,False,False,0)
+        rr=Gtk.Box(spacing=8); rr.pack_start(self.button('Boot Debian Fallback Next Restart',self.recovery_next,True),False,False,0); rr.pack_start(self.button('Rollback Last CoffeeOS Update',self.rollback_update),False,False,0); box.pack_start(rr,False,False,0)
+        box.pack_start(self.label('GRUB stays visible for 5 seconds so the Debian fallback kernel remains manually selectable even if CoffeeKernel has a problem.','muted'),False,False,0)
+        self.section(box,'Support')
+        br=Gtk.Box(spacing=8); br.pack_start(self.button('Create Support Bundle',self.support_bundle),False,False,0); br.pack_start(self.button('Terminal Hardware Info',lambda *_:self.launch(['foot','-e','coffee-info'])),False,False,0); box.pack_start(br,False,False,0)
+        box.pack_start(self.label('Support bundles contain hardware/system diagnostics and warning-level logs, not saved Wi-Fi passwords or your full environment.','muted'),False,False,0)
+        return box
+    def refresh_system(self):
+        self.system_about.set_text(f'{os_name()} · Kernel {platform.release()} · {platform.machine()} · Memory {memory_text()}')
+        rc,raw=capture(['coffee-desktop-settings','storage'],8)
+        try: data=json.loads(raw) if rc==0 else {}
+        except ValueError: data={}
+        devices=data.get('lsblk',{}).get('blockdevices',[]) if isinstance(data,dict) else []
+        lines=[data.get('root_df','').strip()] if data.get('root_df') else []
+        disks=[]
+        for item in devices:
+            if item.get('type')=='disk':
+                name=item.get('name',''); disks.append('/dev/'+name); lines.append(f"/dev/{name}: {item.get('size','?')} · {item.get('model') or 'drive'}")
+        lines.append(f"User cache: {int(data.get('user_cache_bytes',0))/1048576:.1f} MiB")
+        self.storage_status.set_text('\n'.join(x for x in lines if x))
+        if disks and not self.smart_device.get_text(): self.smart_device.set_text(disks[0])
+        rc,out=capture(['coffee-admin-settings','recovery-status'],5); self.recovery_status.set_text(out if rc==0 else 'Recovery status unavailable: '+out)
+    def clean_user(self,*_): self.action('Clean user caches',['coffee-desktop-settings','clean-user'],lambda _rc:self.refresh_system())
+    def clean_system(self,*_):
+        if self.confirm('Clean system files?','Remove unused packages, clear the APT cache and trim old journal logs to about 100 MB?'):
+            self.action('System cleanup',['pkexec','/usr/local/sbin/coffee-admin-settings','cleanup'],lambda _rc:self.refresh_system())
+    def smart_health(self,*_):
+        dev=self.smart_device.get_text().strip()
+        if dev: self.action('Read SMART health',['pkexec','/usr/local/sbin/coffee-admin-settings','smart',dev])
+    def recovery_next(self,*_):
+        if self.confirm('Use Debian fallback next boot?','Schedule the next restart to boot the stock Debian kernel. Later boots return to the normal saved GRUB choice.'):
+            self.action('Schedule fallback kernel',['pkexec','/usr/local/sbin/coffee-admin-settings','recovery-next'])
+    def rollback_update(self,*_):
+        if self.confirm('Rollback CoffeeOS packages?','Reinstall the most recent CoffeeOS/CoffeeKernel package snapshot saved immediately before an update.'):
+            self.action('Rollback CoffeeOS update',['pkexec','/usr/local/sbin/coffee-update','rollback-latest'],lambda _rc:self.refresh_system())
+    def support_bundle(self,*_): self.action('Create support bundle',['coffee-support-bundle'])
+
+
     # Performance
     def performance_page(self):
         box = self.page_box(); box.pack_start(self.label('Performance', 'title'), False, False, 0)
@@ -498,7 +734,19 @@ class CoffeeControlCenter(Gtk.Window):
         box.pack_start(actions, False, False, 0)
         self.section(box,'Steam launch option')
         entry=Gtk.Entry(); entry.set_text('coffee-gaming-mode -- %command%'); entry.set_editable(False); box.pack_start(entry,False,False,0)
-        box.pack_start(self.label('SteamAppId is detected automatically, so per-game overrides can be stored with coffee-gaming-preferences game-set ID hud|gamescope on|off. Gaming Mode also places the game in a high-weight user cgroup when systemd supports it.', 'muted'),False,False,0)
+        box.pack_start(self.label('SteamAppId is detected automatically, so per-game overrides can be stored without editing launch commands. Gaming Mode also places the game in a high-weight user cgroup when systemd supports it.', 'muted'),False,False,0)
+        self.section(box,'MangoHud preset')
+        self.mangohud_preset=Gtk.ComboBoxText()
+        for value,label in (('off','Off'),('fps','FPS only'),('compact','Compact performance'),('full','Full diagnostics')): self.mangohud_preset.append(value,label)
+        self.mangohud_preset.set_active_id('compact'); self.row(box,'Overlay preset','Writes a safe MangoHud configuration preset.',self.mangohud_preset)
+        box.pack_start(self.button('Apply MangoHud Preset',self.apply_mangohud_preset),False,False,0)
+        self.section(box,'Per-game overrides')
+        self.game_id=Gtk.Entry(); self.game_id.set_placeholder_text('Steam App ID'); self.row(box,'Game ID','SteamAppId / SteamGameId.',self.game_id)
+        self.game_hud=Gtk.Switch(); self.row(box,'MangoHud for this game','Overrides the global default.',self.game_hud)
+        self.game_gamescope=Gtk.Switch(); self.row(box,'Gamescope for this game','Overrides the global default.',self.game_gamescope)
+        gr=Gtk.Box(spacing=8); gr.pack_start(self.button('Load Game Settings',self.load_game_settings),False,False,0); gr.pack_start(self.button('Save Game Settings',self.save_game_settings,True),False,False,0); gr.pack_start(self.button('Reset Game Override',self.reset_game_settings),False,False,0); box.pack_start(gr,False,False,0)
+        self.section(box,'Controllers')
+        self.controller_status=self.label(''); box.pack_start(self.controller_status,False,False,0); box.pack_start(self.button('Refresh Controllers',lambda *_:self.refresh_gaming_devices()),False,False,0)
         return box
 
     def gaming_pref(self, widget, _param, key):
@@ -508,6 +756,28 @@ class CoffeeControlCenter(Gtk.Window):
 
     def reset_gaming(self, *_):
         rc,out=capture(['coffee-gaming-preferences','reset'],3); self.set_status(out if rc==0 else out)
+    def apply_mangohud_preset(self,*_):
+        preset=self.mangohud_preset.get_active_id() or 'compact'; rc,out=capture(['coffee-desktop-settings','mangohud',preset],4); self.set_status('MangoHud preset: '+preset if rc==0 else out)
+    def load_game_settings(self,*_):
+        gid=self.game_id.get_text().strip()
+        if not gid: self.set_status('Enter a Steam App ID first.'); return
+        rc,raw=capture(['coffee-gaming-preferences','game-show',gid],4)
+        try: data=json.loads(raw) if rc==0 else {}
+        except ValueError: data={}
+        self.game_hud.set_active(bool(data.get('hud',False))); self.game_gamescope.set_active(bool(data.get('gamescope',False))); self.set_status('Loaded settings for '+gid+'.')
+    def save_game_settings(self,*_):
+        gid=self.game_id.get_text().strip()
+        if not gid: self.set_status('Enter a Steam App ID first.'); return
+        for key,value in (('hud',self.game_hud.get_active()),('gamescope',self.game_gamescope.get_active())): capture(['coffee-gaming-preferences','game-set',gid,key,'on' if value else 'off'],4)
+        self.set_status('Saved per-game settings for '+gid+'.')
+    def reset_game_settings(self,*_):
+        gid=self.game_id.get_text().strip()
+        if gid: capture(['coffee-gaming-preferences','game-reset',gid],4); self.set_status('Reset per-game settings for '+gid+'.')
+    def refresh_gaming_devices(self):
+        rc,raw=capture(['coffee-desktop-settings','controllers'],4)
+        try: items=json.loads(raw) if rc==0 else []
+        except ValueError: items=[]
+        self.controller_status.set_text('\n'.join(f"• {x.get('name','Controller')} ({', '.join(x.get('handlers',[]))})" for x in items) if items else 'No game controllers detected.')
 
     # Appearance
     def appearance_page(self):
@@ -527,6 +797,16 @@ class CoffeeControlCenter(Gtk.Window):
         wp=Gtk.Box(spacing=8); wp.pack_start(self.button('Choose Custom Wallpaper',self.choose_wallpaper),False,False,0); wp.pack_start(self.button('Use Theme Wallpaper',self.reset_wallpaper),False,False,0)
         box.pack_start(wp,False,False,0)
         box.pack_start(self.label('Wallpaper changes restart only swaybg; they do not restart your compositor.', 'muted'),False,False,0)
+        self.section(box,'Night Light')
+        rc,raw=capture(['coffee-night-light','show'],3)
+        try: night=json.loads(raw) if rc==0 else {}
+        except ValueError: night={}
+        self.night_enabled=Gtk.Switch(); self.night_enabled.set_active(bool(night.get('enabled',False))); self.row(box,'Night Light','Warm the screen to reduce blue light.',self.night_enabled)
+        self.night_temp=Gtk.SpinButton.new_with_range(2500,6500,100); self.night_temp.set_value(int(night.get('temperature',4200))); self.row(box,'Color temperature','Lower values are warmer.',self.night_temp)
+        self.night_schedule=Gtk.Switch(); self.night_schedule.set_active(bool(night.get('schedule',False))); self.row(box,'Schedule','Automatically apply Night Light during the configured evening window.',self.night_schedule)
+        self.night_start=Gtk.Entry(); self.night_start.set_text(night.get('start','19:00')); self.row(box,'Start time','24-hour HH:MM.',self.night_start)
+        self.night_end=Gtk.Entry(); self.night_end.set_text(night.get('end','07:00')); self.row(box,'End time','24-hour HH:MM.',self.night_end)
+        box.pack_start(self.button('Apply Night Light',self.apply_night_light),False,False,0)
         return box
 
     def change_theme(self, widget):
@@ -547,6 +827,9 @@ class CoffeeControlCenter(Gtk.Window):
             chosen=d.get_filename(); cfg=Path.home()/'.config/coffeeos/wallpaper'; cfg.parent.mkdir(parents=True,exist_ok=True); cfg.write_text(str(Path(chosen).resolve())+'\n')
             self.restart_wallpaper(); self.set_status('Wallpaper changed.')
         d.destroy()
+
+    def apply_night_light(self,*_):
+        self.action('Apply Night Light',['coffee-night-light','set','--enabled','on' if self.night_enabled.get_active() else 'off','--temperature',str(self.night_temp.get_value_as_int()),'--schedule','on' if self.night_schedule.get_active() else 'off','--start',self.night_start.get_text().strip(),'--end',self.night_end.get_text().strip()])
 
     def reset_wallpaper(self, *_):
         (Path.home()/'.config/coffeeos/wallpaper').unlink(missing_ok=True); self.restart_wallpaper(); self.set_status('Theme wallpaper restored.')
@@ -609,8 +892,13 @@ class CoffeeControlCenter(Gtk.Window):
         self.update_install=self.button('Install Updates',self.install_updates,True)
         self.update_source=self.button('Update Source',self.configure_update_feed)
         self.update_cleanup=self.button('Clean Old Packages',self.cleanup_updates)
-        for b in (self.update_check,self.update_install,self.update_source,self.update_cleanup): buttons.pack_start(b,False,False,0)
+        self.update_rollback=self.button('Rollback Last Update',self.rollback_update)
+        for b in (self.update_check,self.update_install,self.update_source,self.update_cleanup,self.update_rollback): buttons.pack_start(b,False,False,0)
+        self.update_channel=Gtk.ComboBoxText()
+        for value,label in (('stable','Stable'),('beta','Beta'),('dev','Dev')): self.update_channel.append(value,label)
+        channel_row=Gtk.Box(spacing=8); channel_row.pack_start(self.update_channel,False,False,0); channel_row.pack_start(self.button('Set Update Channel',self.set_update_channel),False,False,0); box.pack_start(channel_row,False,False,0)
         box.pack_start(buttons,False,False,0)
+        box.pack_start(self.label('Stable is recommended for normal use. Beta and Dev receive newer CoffeeOS packages when those suites exist on your signed update feed.','muted'),False,False,0)
         self.update_list=Gtk.TextView(editable=False,cursor_visible=False,monospace=True); self.update_list.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         scroll=Gtk.ScrolledWindow(); scroll.set_min_content_height(240); scroll.add(self.update_list); box.pack_start(scroll,True,True,0)
         return box
@@ -631,7 +919,13 @@ class CoffeeControlCenter(Gtk.Window):
             reboot=' · reboot required' if info.get('reboot_required') else ''
             self.update_status.set_text(f"CoffeeOS {info.get('version','unknown')} · cached upgrades: {count} ({coffee} CoffeeOS){reboot}")
         feed=info.get('feed_url','')
+        self.update_channel.set_active_id(info.get('feed_suite','stable'))
         self.update_feed.set_text('CoffeeOS feed: '+(feed if feed else 'not configured — Debian Stable updates still work'))
+
+    def set_update_channel(self,*_):
+        channel=self.update_channel.get_active_id() or 'stable'
+        if not self.confirm('Change CoffeeOS update channel?',f'Switch the signed CoffeeOS feed to {channel}? Debian Stable base updates are unchanged.'): return
+        self.action('Set update channel',['pkexec','/usr/local/sbin/coffee-update','set-channel',channel],lambda _rc:self.refresh_updates())
 
     def check_updates(self,*_):
         self.action('Check for updates',['pkexec','/usr/local/sbin/coffee-update','check'],lambda _rc:self.refresh_updates())
@@ -674,7 +968,7 @@ class CoffeeControlCenter(Gtk.Window):
 
 def main():
     parser=argparse.ArgumentParser(description='CoffeeOS system settings')
-    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','performance','gaming','appearance','software','updates'))
+    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','power','input','security','apps','system','performance','gaming','appearance','software','updates'))
     args=parser.parse_args()
     apply_theme_style()
     win=CoffeeControlCenter()
