@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""Validated hardware-settings backend for Coffee Control Center."""
+from __future__ import annotations
+import argparse, json, os, re, subprocess, sys, tempfile
+from pathlib import Path
+
+ENV=os.environ.copy(); ENV['LC_ALL']='C'
+MAC_RE=re.compile(r'^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$')
+TRANSFORMS={'normal','90','180','270','flipped','flipped-90','flipped-180','flipped-270'}
+
+def capture(argv,timeout=20):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,check=False,env=ENV)
+        return p.returncode,p.stdout.strip()
+    except (OSError,subprocess.TimeoutExpired) as exc: return 127,str(exc)
+
+def config_home(): return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')
+
+def atomic_json(path,data):
+    path.parent.mkdir(parents=True,exist_ok=True); tmp=None
+    try:
+        with tempfile.NamedTemporaryFile('w',encoding='utf-8',dir=path.parent,prefix='.coffee-',delete=False) as out:
+            tmp=Path(out.name); json.dump(data,out,indent=2); out.write('\n'); out.flush(); os.fsync(out.fileno())
+        os.chmod(tmp,0o600); os.replace(tmp,path)
+    finally:
+        if tmp is not None: tmp.unlink(missing_ok=True)
+
+def parse_wlr_randr(text):
+    outputs=[]; current=None; in_modes=False
+    for raw in text.splitlines():
+        if raw and not raw[0].isspace():
+            m=re.match(r'^(\S+)(?:\s+"(.*)")?$',raw)
+            if not m: continue
+            current={'name':m.group(1),'description':m.group(2) or m.group(1),'enabled':False,'modes':[],'position':[0,0],'transform':'normal','scale':1.0}
+            outputs.append(current); in_modes=False; continue
+        if current is None: continue
+        line=raw.strip()
+        if line.startswith('Enabled:'):
+            current['enabled']=line.split(':',1)[1].strip().lower()=='yes'; in_modes=False
+        elif line=='Modes:': in_modes=True
+        elif in_modes:
+            m=re.match(r'^(\d+)x(\d+)\s+px,\s+([0-9.]+)\s+Hz(?:\s+\(([^)]*)\))?$',line)
+            if m:
+                flags={x.strip() for x in (m.group(4) or '').split(',') if x.strip()}
+                refresh=float(m.group(3)); spec=f'{m.group(1)}x{m.group(2)}@{refresh:.6f}Hz'
+                current['modes'].append({'width':int(m.group(1)),'height':int(m.group(2)),'refresh':refresh,'spec':spec,'current':'current' in flags,'preferred':'preferred' in flags})
+                continue
+            in_modes=False
+        if line.startswith('Position:'):
+            try:
+                x,y=line.split(':',1)[1].strip().split(',',1); current['position']=[int(x),int(y)]
+            except ValueError: pass
+        elif line.startswith('Transform:'):
+            value=line.split(':',1)[1].strip()
+            if value in TRANSFORMS: current['transform']=value
+        elif line.startswith('Scale:'):
+            try: current['scale']=float(line.split(':',1)[1].strip())
+            except ValueError: pass
+    return outputs
+
+def query_displays():
+    rc,out=capture(['wlr-randr'],5)
+    return rc,parse_wlr_randr(out) if rc==0 else [],out
+
+def display_list():
+    rc,items,out=query_displays()
+    print(json.dumps({'outputs':items,**({'error':out or 'wlr-randr failed'} if rc else {})},indent=2)); return rc
+
+def display_state_path(): return config_home()/'coffeeos'/'displays.json'
+def read_display_state():
+    try:
+        d=json.loads(display_state_path().read_text(encoding='utf-8')); return d if isinstance(d,dict) else {'outputs':{}}
+    except (OSError,ValueError): return {'outputs':{}}
+
+def apply_display(name,enabled,mode=None,scale=1.0,transform='normal',position=(0,0),persist=True):
+    rc,outputs,out=query_displays()
+    if rc: print(out or 'Unable to query displays.',file=sys.stderr); return rc
+    selected=next((x for x in outputs if x['name']==name),None)
+    if selected is None: print(f'Unknown display: {name}',file=sys.stderr); return 2
+    if not enabled:
+        if selected['enabled'] and sum(1 for x in outputs if x['enabled'])<=1:
+            print('CoffeeOS will not disable the last active display.',file=sys.stderr); return 2
+        argv=['wlr-randr','--output',name,'--off']
+    else:
+        if transform not in TRANSFORMS or not 0.5<=float(scale)<=4.0: print('Invalid display settings.',file=sys.stderr); return 2
+        if mode and mode not in {x['spec'] for x in selected['modes']}: print('Mode is not advertised by this display.',file=sys.stderr); return 2
+        x,y=int(position[0]),int(position[1])
+        if not (-32768<=x<=32768 and -32768<=y<=32768): print('Display position is outside the supported range.',file=sys.stderr); return 2
+        argv=['wlr-randr','--output',name,'--on']
+        if mode: argv+=['--mode',mode]
+        argv+=['--scale',f'{float(scale):.3f}','--transform',transform,'--pos',f'{x},{y}']
+    rc,result=capture(argv,10)
+    if rc: print(result or 'Display change failed.',file=sys.stderr); return rc
+    if persist:
+        state=read_display_state(); state.setdefault('outputs',{})[name]={'enabled':bool(enabled),'mode':mode or '','scale':float(scale),'transform':transform,'position':[int(position[0]),int(position[1])]}
+        atomic_json(display_state_path(),state)
+    print(f'Display settings applied to {name}.'); return 0
+
+def display_restore():
+    saved=read_display_state().get('outputs',{})
+    if not saved: return 0
+    rc,outputs,_=query_displays()
+    if rc: return 0
+    present={x['name'] for x in outputs}; failed=False
+    for name,state in sorted(saved.items(),key=lambda p:not bool(p[1].get('enabled',True))):
+        if name not in present: continue
+        result=apply_display(name,bool(state.get('enabled',True)),state.get('mode') or None,float(state.get('scale',1.0)),state.get('transform','normal'),tuple(state.get('position',[0,0])),False)
+        failed=failed or result!=0
+    return 1 if failed else 0
+
+def pactl_devices(kind):
+    plural='sinks' if kind=='sink' else 'sources'; rc,out=capture(['pactl','list','short',plural],5)
+    if rc: return []
+    result=[]
+    for line in out.splitlines():
+        fields=line.split('\t')
+        if len(fields)<2: continue
+        name=fields[1].strip()
+        if kind=='source' and name.endswith('.monitor'): continue
+        result.append({'id':fields[0].strip(),'name':name})
+    return result
+
+def default_audio(kind):
+    rc,out=capture(['pactl','get-default-sink' if kind=='sink' else 'get-default-source'],4); return out.strip() if rc==0 else ''
+
+def audio_level(kind):
+    target='@DEFAULT_AUDIO_SINK@' if kind=='sink' else '@DEFAULT_AUDIO_SOURCE@'; rc,out=capture(['wpctl','get-volume',target],4)
+    if rc: return {'volume':1.0,'muted':False}
+    m=re.search(r'Volume:\s+([0-9.]+)',out); return {'volume':float(m.group(1)) if m else 1.0,'muted':'[MUTED]' in out}
+
+def audio_list():
+    print(json.dumps({'outputs':pactl_devices('sink'),'inputs':pactl_devices('source'),'default_output':default_audio('sink'),'default_input':default_audio('source'),'output':audio_level('sink'),'input':audio_level('source')},indent=2)); return 0
+
+def audio_default(kind,name):
+    if name not in {x['name'] for x in pactl_devices(kind)}: print('Unknown audio device.',file=sys.stderr); return 2
+    rc,out=capture(['pactl','set-default-sink' if kind=='sink' else 'set-default-source',name],5)
+    if rc: print(out or 'Could not change audio device.',file=sys.stderr)
+    return rc
+
+def audio_volume(kind,value):
+    value=float(value)
+    if not 0<=value<=1.5: return 2
+    target='@DEFAULT_AUDIO_SINK@' if kind=='sink' else '@DEFAULT_AUDIO_SOURCE@'; rc,out=capture(['wpctl','set-volume',target,f'{value:.3f}'],5)
+    if rc: print(out or 'Could not change volume.',file=sys.stderr)
+    return rc
+
+def audio_mute(kind,state):
+    target='@DEFAULT_AUDIO_SINK@' if kind=='sink' else '@DEFAULT_AUDIO_SOURCE@'; rc,out=capture(['wpctl','set-mute',target,state],5)
+    if rc: print(out or 'Could not change mute state.',file=sys.stderr)
+    return rc
+
+def bt_data():
+    rc,show=capture(['bluetoothctl','show'],5)
+    if rc: return {'available':False,'powered':False,'controller':'','devices':[],'error':show or 'No Bluetooth controller found.'}
+    controller=''; powered=False
+    for line in show.splitlines():
+        s=line.strip()
+        if s.startswith('Controller '):
+            parts=s.split(); controller=parts[1] if len(parts)>1 else ''
+        elif s.startswith('Powered:'): powered=s.split(':',1)[1].strip().lower()=='yes'
+    def devices(command):
+        rc2,out=capture(command,5); result={}
+        if rc2: return result
+        for line in out.splitlines():
+            m=re.match(r'^Device\s+([0-9A-Fa-f:]{17})\s+(.+)$',line.strip())
+            if m: result[m.group(1).upper()]=m.group(2).strip()
+        return result
+    all_=devices(['bluetoothctl','devices']); paired=set(devices(['bluetoothctl','devices','Paired'])); connected=set(devices(['bluetoothctl','devices','Connected']))
+    items=[{'address':a,'name':n,'paired':a in paired,'connected':a in connected} for a,n in all_.items()]
+    items.sort(key=lambda x:(not x['connected'],not x['paired'],x['name'].lower()))
+    return {'available':bool(controller),'controller':controller,'powered':powered,'devices':items}
+
+def bluetooth_list(): data=bt_data(); print(json.dumps(data,indent=2)); return 0 if data.get('available') else 3
+def bluetooth_power(state):
+    rc,out=capture(['bluetoothctl','power',state],8)
+    if rc: print(out or 'Could not change Bluetooth power.',file=sys.stderr)
+    return rc
+def bt_valid(addr): return bool(MAC_RE.fullmatch(addr)) and addr.upper() in {x['address'] for x in bt_data().get('devices',[])}
+def bluetooth_action(action,addr):
+    addr=addr.upper()
+    if not bt_valid(addr): print('Unknown Bluetooth device.',file=sys.stderr); return 2
+    argv={'connect':['bluetoothctl','--timeout','20','connect',addr],'disconnect':['bluetoothctl','--timeout','15','disconnect',addr],'pair':['bluetoothctl','--agent','NoInputNoOutput','--timeout','30','pair',addr]}[action]
+    rc,out=capture(argv,35)
+    if rc: print(out or f'Bluetooth {action} failed.',file=sys.stderr)
+    else:
+        if action=='pair': capture(['bluetoothctl','trust',addr],8)
+        print(out)
+    return rc
+def bluetooth_scan():
+    rc,out=capture(['bluetoothctl','--timeout','7','scan','on'],10)
+    if rc: print(out or 'Bluetooth scan failed.',file=sys.stderr)
+    return rc
+
+def main():
+    p=argparse.ArgumentParser(); sub=p.add_subparsers(dest='command',required=True)
+    sub.add_parser('display-list'); a=sub.add_parser('display-apply')
+    a.add_argument('--output',required=True); a.add_argument('--enabled',choices=('on','off'),required=True); a.add_argument('--mode',default=''); a.add_argument('--scale',type=float,default=1.0); a.add_argument('--transform',choices=sorted(TRANSFORMS),default='normal'); a.add_argument('--x',type=int,default=0); a.add_argument('--y',type=int,default=0)
+    sub.add_parser('display-restore'); sub.add_parser('audio-list')
+    a=sub.add_parser('audio-default'); a.add_argument('kind',choices=('sink','source')); a.add_argument('name')
+    a=sub.add_parser('audio-volume'); a.add_argument('kind',choices=('sink','source')); a.add_argument('value',type=float)
+    a=sub.add_parser('audio-mute'); a.add_argument('kind',choices=('sink','source')); a.add_argument('state',choices=('on','off','toggle'))
+    sub.add_parser('bluetooth-list'); a=sub.add_parser('bluetooth-power'); a.add_argument('state',choices=('on','off')); sub.add_parser('bluetooth-scan')
+    for name in ('bluetooth-connect','bluetooth-disconnect','bluetooth-pair'): a=sub.add_parser(name); a.add_argument('address')
+    args=p.parse_args()
+    if args.command=='display-list': return display_list()
+    if args.command=='display-apply': return apply_display(args.output,args.enabled=='on',args.mode or None,args.scale,args.transform,(args.x,args.y))
+    if args.command=='display-restore': return display_restore()
+    if args.command=='audio-list': return audio_list()
+    if args.command=='audio-default': return audio_default(args.kind,args.name)
+    if args.command=='audio-volume': return audio_volume(args.kind,args.value)
+    if args.command=='audio-mute': return audio_mute(args.kind,args.state)
+    if args.command=='bluetooth-list': return bluetooth_list()
+    if args.command=='bluetooth-power': return bluetooth_power(args.state)
+    if args.command=='bluetooth-scan': return bluetooth_scan()
+    if args.command.startswith('bluetooth-'): return bluetooth_action(args.command.removeprefix('bluetooth-'),args.address)
+    return 2
+if __name__=='__main__': raise SystemExit(main())

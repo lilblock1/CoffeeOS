@@ -6,6 +6,7 @@ no user-provided text is evaluated by a shell.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import platform
@@ -170,6 +171,9 @@ class CoffeeControlCenter(Gtk.Window):
         body.pack_start(self.stack, True, True, 0)
 
         self.add_page('overview', 'Overview', self.overview_page())
+        self.add_page('display', 'Display', self.display_page())
+        self.add_page('bluetooth', 'Bluetooth', self.bluetooth_page())
+        self.add_page('audio', 'Audio', self.audio_page())
         self.add_page('performance', 'Performance', self.performance_page())
         self.add_page('gaming', 'Gaming', self.gaming_page())
         self.add_page('appearance', 'Appearance', self.appearance_page())
@@ -188,7 +192,7 @@ class CoffeeControlCenter(Gtk.Window):
         scroll = Gtk.ScrolledWindow(); scroll.set_min_content_height(100); scroll.add(self.log)
         expander.add(scroll); bottom.pack_start(expander, False, True, 0)
 
-        self.refresh_overview(); self.refresh_performance(); self.refresh_software(); self.refresh_updates()
+        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_performance(); self.refresh_software(); self.refresh_updates()
 
     def add_page(self, name, title, widget):
         scroll = Gtk.ScrolledWindow(); scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -276,7 +280,8 @@ class CoffeeControlCenter(Gtk.Window):
         actions = Gtk.Box(spacing=8)
         actions.pack_start(self.button('Refresh', lambda *_: self.refresh_overview()), False, False, 0)
         actions.pack_start(self.button('Network', lambda *_: self.launch(['nm-connection-editor'])), False, False, 0)
-        actions.pack_start(self.button('Sound', lambda *_: self.launch(['pavucontrol'])), False, False, 0)
+        actions.pack_start(self.button('Display', lambda *_: self.stack.set_visible_child_name('display')), False, False, 0)
+        actions.pack_start(self.button('Audio', lambda *_: self.stack.set_visible_child_name('audio')), False, False, 0)
         actions.pack_start(self.button('Terminal Info', lambda *_: self.launch(['foot','-e','coffee-info'])), False, False, 0)
         box.pack_start(actions, False, False, 0)
         self.overview_session = self.label('', 'muted'); box.pack_start(self.overview_session, False, False, 0)
@@ -288,6 +293,126 @@ class CoffeeControlCenter(Gtk.Window):
         self.overview_memory.set_text('Memory: ' + memory_text())
         self.overview_gpu.set_text('Graphics:\n' + gpu_text())
         self.overview_session.set_text('Session: ' + ('Live ISO (changes are temporary)' if is_live() else 'Installed system'))
+
+
+    # Display
+    def display_page(self):
+        box=self.page_box(); box.pack_start(self.label('Display','title'),False,False,0)
+        box.pack_start(self.label('Configure connected Wayland displays. Applied settings are restored on later CoffeeOS logins.','muted'),False,False,0)
+        self.display_data={}; self.display_updating=False
+        self.display_output=Gtk.ComboBoxText(); self.display_output.connect('changed',self.display_output_changed); self.row(box,'Display','Choose a connected monitor.',self.display_output)
+        self.display_enabled=Gtk.Switch(); self.row(box,'Enabled','CoffeeOS prevents disabling the last active display.',self.display_enabled)
+        self.display_mode=Gtk.ComboBoxText(); self.row(box,'Resolution & refresh rate','Modes advertised by the selected display.',self.display_mode)
+        self.display_scale=Gtk.SpinButton.new_with_range(0.5,4.0,0.25); self.display_scale.set_digits(2); self.row(box,'Scale','1.00 is native scale.',self.display_scale)
+        self.display_transform=Gtk.ComboBoxText()
+        for value,label in (('normal','Normal'),('90','90°'),('180','180°'),('270','270°'),('flipped','Flipped'),('flipped-90','Flipped 90°'),('flipped-180','Flipped 180°'),('flipped-270','Flipped 270°')): self.display_transform.append(value,label)
+        self.row(box,'Orientation','Rotate or flip the selected display.',self.display_transform)
+        pos=Gtk.Box(spacing=8); self.display_x=Gtk.SpinButton.new_with_range(-32768,32768,1); self.display_y=Gtk.SpinButton.new_with_range(-32768,32768,1); pos.pack_start(Gtk.Label(label='X'),False,False,0); pos.pack_start(self.display_x,False,False,0); pos.pack_start(Gtk.Label(label='Y'),False,False,0); pos.pack_start(self.display_y,False,False,0); self.row(box,'Position','Pixel position in a multi-monitor desktop.',pos)
+        buttons=Gtk.Box(spacing=8); buttons.pack_start(self.button('Apply Display Settings',self.apply_display,True),False,False,0); buttons.pack_start(self.button('Refresh',lambda *_:self.refresh_display()),False,False,0); box.pack_start(buttons,False,False,0)
+        self.display_status=self.label('','muted'); box.pack_start(self.display_status,False,False,0); return box
+    def refresh_display(self):
+        rc,raw=capture(['coffee-hardware-settings','display-list'],6)
+        try: data=json.loads(raw) if raw else {}
+        except ValueError: data={}
+        outputs=data.get('outputs',[]) if isinstance(data,dict) else []; current=self.display_output.get_active_id(); self.display_data={x.get('name'):x for x in outputs if x.get('name')}
+        self.display_updating=True; self.display_output.remove_all()
+        for item in outputs: self.display_output.append(item['name'],item.get('description') or item['name'])
+        if current in self.display_data: self.display_output.set_active_id(current)
+        elif outputs: self.display_output.set_active(0)
+        self.display_updating=False; self.display_output_changed(self.display_output)
+        self.display_status.set_text(f'{len(outputs)} display(s) detected.' if outputs else data.get('error',raw or 'No Wayland displays detected.'))
+    def display_output_changed(self,widget):
+        item=self.display_data.get(widget.get_active_id())
+        if not item: return
+        self.display_updating=True; self.display_enabled.set_active(bool(item.get('enabled'))); self.display_mode.remove_all(); current=None; preferred=None
+        for mode in item.get('modes',[]):
+            spec=mode.get('spec','')
+            if not spec: continue
+            label=f"{mode.get('width')}×{mode.get('height')}  {mode.get('refresh',0):.2f} Hz"
+            if mode.get('preferred'): label+=' · preferred'; preferred=spec
+            if mode.get('current'): current=spec
+            self.display_mode.append(spec,label)
+        if current: self.display_mode.set_active_id(current)
+        elif preferred: self.display_mode.set_active_id(preferred)
+        elif item.get('modes'): self.display_mode.set_active(0)
+        self.display_scale.set_value(float(item.get('scale',1.0))); self.display_transform.set_active_id(item.get('transform','normal')); pos=item.get('position',[0,0]); self.display_x.set_value(int(pos[0]) if pos else 0); self.display_y.set_value(int(pos[1]) if len(pos)>1 else 0); self.display_updating=False
+    def apply_display(self,*_):
+        name=self.display_output.get_active_id()
+        if not name: self.set_status('No display selected.'); return
+        argv=['coffee-hardware-settings','display-apply','--output',name,'--enabled','on' if self.display_enabled.get_active() else 'off']
+        if self.display_enabled.get_active():
+            mode=self.display_mode.get_active_id()
+            if mode: argv+=['--mode',mode]
+            argv+=['--scale',f'{self.display_scale.get_value():.3f}','--transform',self.display_transform.get_active_id() or 'normal','--x',str(self.display_x.get_value_as_int()),'--y',str(self.display_y.get_value_as_int())]
+        self.action('Apply display settings',argv,lambda _rc:self.refresh_display())
+
+    # Bluetooth
+    def bluetooth_page(self):
+        box=self.page_box(); box.pack_start(self.label('Bluetooth','title'),False,False,0); box.pack_start(self.label('Power, scan, pair, connect and disconnect Bluetooth devices without leaving Control Center.','muted'),False,False,0)
+        self.bt_updating=False; self.bt_power=Gtk.Switch(); self.bt_power.connect('notify::active',self.bluetooth_power_changed); self.row(box,'Bluetooth radio','Turn the Bluetooth controller on or off.',self.bt_power)
+        self.bt_status=self.label(''); box.pack_start(self.bt_status,False,False,0); buttons=Gtk.Box(spacing=8); buttons.pack_start(self.button('Scan for Devices',self.bluetooth_scan,True),False,False,0); buttons.pack_start(self.button('Refresh',lambda *_:self.refresh_bluetooth()),False,False,0); buttons.pack_start(self.button('Advanced…',lambda *_:self.launch(['blueman-manager'])),False,False,0); box.pack_start(buttons,False,False,0)
+        self.bt_list=Gtk.ListBox(); self.bt_list.set_selection_mode(Gtk.SelectionMode.NONE); box.pack_start(self.bt_list,False,False,0); box.pack_start(self.label('Devices requiring a displayed or entered PIN may need Advanced Bluetooth Manager.','muted'),False,False,0); return box
+    def refresh_bluetooth(self):
+        rc,raw=capture(['coffee-hardware-settings','bluetooth-list'],7)
+        try: data=json.loads(raw) if raw else {}
+        except ValueError: data={}
+        self.bt_updating=True; self.bt_power.set_active(bool(data.get('powered'))); self.bt_power.set_sensitive(bool(data.get('available'))); self.bt_updating=False
+        for child in self.bt_list.get_children(): self.bt_list.remove(child)
+        devices=data.get('devices',[])
+        for item in devices:
+            row=Gtk.ListBoxRow(); inner=Gtk.Box(spacing=10); inner.set_border_width(9); row.add(inner); labels=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=2); labels.pack_start(self.label(item.get('name') or item.get('address','')),False,False,0); state='Connected' if item.get('connected') else ('Paired' if item.get('paired') else 'Available'); labels.pack_start(self.label(f"{state} · {item.get('address','')}",'muted'),False,False,0); inner.pack_start(labels,True,True,0)
+            if item.get('connected'): label,action='Disconnect','bluetooth-disconnect'
+            elif item.get('paired'): label,action='Connect','bluetooth-connect'
+            else: label,action='Pair','bluetooth-pair'
+            inner.pack_end(self.button(label,lambda _b,a=action,addr=item.get('address',''):self.bluetooth_device_action(a,addr),action!='bluetooth-disconnect'),False,False,0); self.bt_list.add(row)
+        self.bt_list.show_all(); self.bt_status.set_text((('Bluetooth is on' if data.get('powered') else 'Bluetooth is off')+f" · {len(devices)} device(s) known") if data.get('available') else data.get('error','No Bluetooth controller detected.'))
+    def bluetooth_power_changed(self,widget,_param):
+        if self.bt_updating: return
+        state='on' if widget.get_active() else 'off'; self.action('Bluetooth '+state,['coffee-hardware-settings','bluetooth-power',state],lambda _rc:self.refresh_bluetooth())
+    def bluetooth_scan(self,*_):
+        if not self.bt_power.get_active(): self.set_status('Turn Bluetooth on before scanning.'); return
+        self.action('Scan for Bluetooth devices',['coffee-hardware-settings','bluetooth-scan'],lambda _rc:self.refresh_bluetooth())
+    def bluetooth_device_action(self,action,address):
+        self.action({'bluetooth-connect':'Connect Bluetooth device','bluetooth-disconnect':'Disconnect Bluetooth device','bluetooth-pair':'Pair Bluetooth device'}[action],['coffee-hardware-settings',action,address],lambda _rc:self.refresh_bluetooth())
+
+    # Audio
+    def audio_page(self):
+        box=self.page_box(); box.pack_start(self.label('Audio','title'),False,False,0); box.pack_start(self.label('Choose PipeWire audio devices and control speaker and microphone levels directly.','muted'),False,False,0); self.audio_updating=False; self.audio_timers={}
+        self.audio_output=Gtk.ComboBoxText(); self.audio_output.connect('changed',self.audio_default_changed,'sink'); self.row(box,'Output device','Speakers, headphones or HDMI audio.',self.audio_output)
+        self.audio_output_volume=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,150,1); self.audio_output_volume.set_value_pos(Gtk.PositionType.RIGHT); self.audio_output_volume.connect('value-changed',self.audio_volume_changed,'sink'); self.row(box,'Output volume','Volume can be raised to 150% when needed.',self.audio_output_volume)
+        self.audio_output_mute=Gtk.Switch(); self.audio_output_mute.connect('notify::active',self.audio_mute_changed,'sink'); self.row(box,'Mute output','Silence the current output device.',self.audio_output_mute)
+        self.section(box,'Microphone'); self.audio_input=Gtk.ComboBoxText(); self.audio_input.connect('changed',self.audio_default_changed,'source'); self.row(box,'Input device','Choose the default microphone.',self.audio_input)
+        self.audio_input_volume=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,150,1); self.audio_input_volume.set_value_pos(Gtk.PositionType.RIGHT); self.audio_input_volume.connect('value-changed',self.audio_volume_changed,'source'); self.row(box,'Input volume','Microphone capture level.',self.audio_input_volume)
+        self.audio_input_mute=Gtk.Switch(); self.audio_input_mute.connect('notify::active',self.audio_mute_changed,'source'); self.row(box,'Mute microphone','Disable microphone capture.',self.audio_input_mute)
+        buttons=Gtk.Box(spacing=8); buttons.pack_start(self.button('Refresh',lambda *_:self.refresh_audio()),False,False,0); buttons.pack_start(self.button('Advanced Mixer…',lambda *_:self.launch(['pavucontrol'])),False,False,0); box.pack_start(buttons,False,False,0); self.audio_status=self.label(''); box.pack_start(self.audio_status,False,False,0); return box
+    def refresh_audio(self):
+        rc,raw=capture(['coffee-hardware-settings','audio-list'],7)
+        try: data=json.loads(raw) if raw else {}
+        except ValueError: data={}
+        if rc!=0 or data.get('error'): self.audio_status.set_text(data.get('error') or raw or 'Audio controls unavailable.'); return
+        self.audio_updating=True; self.audio_output.remove_all()
+        for item in data.get('outputs',[]): self.audio_output.append(item['name'],item['name'])
+        self.audio_output.set_active_id(data.get('default_output','')); self.audio_input.remove_all()
+        for item in data.get('inputs',[]): self.audio_input.append(item['name'],item['name'])
+        self.audio_input.set_active_id(data.get('default_input','')); self.audio_output_volume.set_value(float(data.get('output',{}).get('volume',1.0))*100); self.audio_input_volume.set_value(float(data.get('input',{}).get('volume',1.0))*100); self.audio_output_mute.set_active(bool(data.get('output',{}).get('muted'))); self.audio_input_mute.set_active(bool(data.get('input',{}).get('muted'))); self.audio_updating=False; self.audio_status.set_text(f"{len(data.get('outputs',[]))} output(s) · {len(data.get('inputs',[]))} input(s)")
+    def audio_default_changed(self,widget,kind):
+        if self.audio_updating: return
+        name=widget.get_active_id()
+        if name: self.action('Change audio device',['coffee-hardware-settings','audio-default',kind,name],lambda _rc:self.refresh_audio())
+    def audio_volume_changed(self,widget,kind):
+        if self.audio_updating: return
+        old=self.audio_timers.get(kind)
+        if old: GLib.source_remove(old)
+        self.audio_timers[kind]=GLib.timeout_add(140,self.apply_audio_volume,kind,widget.get_value()/100.0)
+    def apply_audio_volume(self,kind,value):
+        self.audio_timers[kind]=None; rc,out=capture(['coffee-hardware-settings','audio-volume',kind,f'{value:.3f}'],4)
+        if rc!=0: self.set_status(out or 'Could not change audio volume.')
+        return False
+    def audio_mute_changed(self,widget,_param,kind):
+        if self.audio_updating: return
+        rc,out=capture(['coffee-hardware-settings','audio-mute',kind,'on' if widget.get_active() else 'off'],4)
+        if rc!=0: self.set_status(out or 'Could not change mute state.')
+
 
     # Performance
     def performance_page(self):
@@ -548,7 +673,12 @@ class CoffeeControlCenter(Gtk.Window):
 
 
 def main():
+    parser=argparse.ArgumentParser(description='CoffeeOS system settings')
+    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','performance','gaming','appearance','software','updates'))
+    args=parser.parse_args()
     apply_theme_style()
-    win=CoffeeControlCenter(); win.connect('destroy',Gtk.main_quit); win.show_all(); Gtk.main()
+    win=CoffeeControlCenter()
+    if args.page: win.stack.set_visible_child_name(args.page)
+    win.connect('destroy',Gtk.main_quit); win.show_all(); Gtk.main()
 
 if __name__=='__main__': main()

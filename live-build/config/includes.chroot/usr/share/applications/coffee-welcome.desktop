@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Welcome to CoffeeOS
+Comment=Finish setting up CoffeeOS
+Exec=coffee-first-boot --force
+Terminal=false
+Type=Application
+Icon=coffeeos
+Categories=Settings;System;
+Keywords=welcome;setup;first run;CoffeeOS;
+StartupNotify=true

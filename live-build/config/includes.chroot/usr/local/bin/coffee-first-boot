@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""CoffeeOS first installed-login welcome."""
+from __future__ import annotations
+import argparse, os, subprocess
+from pathlib import Path
+import gi
+gi.require_version('Gtk','3.0')
+from gi.repository import Gdk,Gtk
+
+STYLE=b'''
+window.coffee-welcome { background:#140e0c; color:#f8eee5; }
+.coffee-welcome label { color:#f8eee5; }
+.coffee-welcome .title { color:#d89a5b; font-size:28px; font-weight:bold; }
+.coffee-welcome .section { color:#d89a5b; font-size:15px; font-weight:bold; }
+.coffee-welcome .muted { color:#c0aa9a; }
+.coffee-welcome button { background-image:none; background:#39241d; color:#f8eee5; border:1px solid #62402f; border-radius:10px; padding:11px 14px; }
+.coffee-welcome button:hover { background:#523426; }
+.coffee-welcome button.suggested-action { background:#d89a5b; color:#fffaf3; }
+'''
+def config_home(): return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')
+def marker(): return config_home()/'coffeeos'/'welcome-complete'
+def is_live():
+    try: return 'boot=live' in Path('/proc/cmdline').read_text(encoding='utf-8')
+    except OSError: return False
+def apply_style():
+    screen=Gdk.Screen.get_default()
+    if screen is None: return
+    try: data=(config_home()/'coffeeos'/'welcome.css').read_bytes()
+    except OSError: data=STYLE
+    provider=Gtk.CssProvider(); provider.load_from_data(data); Gtk.StyleContext.add_provider_for_screen(screen,provider,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+class Welcome(Gtk.Window):
+    def __init__(self):
+        super().__init__(title='Welcome to CoffeeOS'); self.set_default_size(700,520); self.set_position(Gtk.WindowPosition.CENTER); self.get_style_context().add_class('coffee-welcome')
+        box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=14); box.set_border_width(30); self.add(box)
+        title=Gtk.Label(label='☕  Welcome to CoffeeOS'); title.set_xalign(0); title.get_style_context().add_class('title'); box.pack_start(title,False,False,0)
+        intro=Gtk.Label(label='Your system is ready. Use these shortcuts to finish setting up CoffeeOS.'); intro.set_xalign(0); intro.set_line_wrap(True); intro.get_style_context().add_class('muted'); box.pack_start(intro,False,False,0)
+        section=Gtk.Label(label='Finish setting up your desktop'); section.set_xalign(0); section.get_style_context().add_class('section'); box.pack_start(section,False,False,8)
+        grid=Gtk.Grid(column_spacing=10,row_spacing=10,column_homogeneous=True); box.pack_start(grid,True,True,0)
+        for col,row,title,detail,page in ((0,0,'Display','Resolution, refresh rate, scale and layout','display'),(1,0,'Audio','Speakers, microphone, volume and mute','audio'),(0,1,'Bluetooth','Pair and connect wireless devices','bluetooth'),(1,1,'Updates','Check CoffeeOS and Debian updates','updates'),(0,2,'Software & Drivers','Optional software and graphics drivers','software')):
+            button=self.page_button(title,detail,page); grid.attach(button,col,row,2 if title=='Software & Drivers' else 1,1)
+        footer=Gtk.Box(spacing=10); box.pack_end(footer,False,False,0)
+        control=Gtk.Button(label='Open Control Center'); control.connect('clicked',lambda *_:self.open_page('overview')); footer.pack_start(control,True,True,0)
+        finish=Gtk.Button(label='Finish Setup'); finish.get_style_context().add_class('suggested-action'); finish.connect('clicked',self.finish); footer.pack_start(finish,True,True,0)
+    def page_button(self,title,detail,page):
+        b=Gtk.Button(); inner=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=4); heading=Gtk.Label(label=title); heading.set_xalign(0); hint=Gtk.Label(label=detail); hint.set_xalign(0); hint.set_line_wrap(True); hint.get_style_context().add_class('muted'); inner.pack_start(heading,False,False,0); inner.pack_start(hint,False,False,0); b.add(inner); b.connect('clicked',lambda *_:self.open_page(page)); return b
+    def open_page(self,page):
+        try: subprocess.Popen(['coffee-control-center','--page',page],start_new_session=True)
+        except OSError: pass
+    def finish(self,*_):
+        path=marker(); path.parent.mkdir(parents=True,exist_ok=True); path.write_text('CoffeeOS first-run welcome completed.\n',encoding='utf-8'); os.chmod(path,0o600); self.destroy()
+def main():
+    p=argparse.ArgumentParser(); p.add_argument('--force',action='store_true'); args=p.parse_args()
+    if not args.force and (is_live() or marker().exists()): return 0
+    apply_style(); w=Welcome(); w.connect('destroy',Gtk.main_quit); w.show_all(); Gtk.main(); return 0
+if __name__=='__main__': raise SystemExit(main())

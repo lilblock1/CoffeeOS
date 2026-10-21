@@ -41,3 +41,7 @@ fonts-cantarell
 brightnessctl
 grim
 slurp
+
+# Coffee Control Center hardware settings
+wlr-randr
+pulseaudio-utils

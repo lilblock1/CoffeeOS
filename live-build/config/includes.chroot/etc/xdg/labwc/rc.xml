@@ -15,7 +15,7 @@
     <keybind key="W-space"><action name="Execute" command="fuzzel" /></keybind>
     <keybind key="W-d"><action name="Execute" command="fuzzel" /></keybind>
     <keybind key="W-e"><action name="Execute" command="thunar" /></keybind>
-    <keybind key="W-s"><action name="Execute" command="coffee-quick-settings" /></keybind>
+    <keybind key="W-s"><action name="Execute" command="coffee-control-center" /></keybind>
     <keybind key="W-c"><action name="Execute" command="coffee-control-center" /></keybind>
     <keybind key="W-p"><action name="Execute" command="coffee-power-menu" /></keybind>
     <keybind key="W-q"><action name="Close" /></keybind>
