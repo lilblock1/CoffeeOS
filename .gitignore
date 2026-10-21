@@ -1,0 +1,37 @@
+# CoffeeOS build output
+/build/
+/dist/
+/optimized-build/
+/kernel-build/
+*.iso
+*.hybrid.iso
+*.deb
+*.changes
+*.buildinfo
+*.dsc
+*.tar.xz
+*.tar.gz
+SHA256SUMS
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Native/Windows build artifacts
+*.exe
+*.obj
+*.lib
+*.dll
+*.pdb
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local signing material
+*.gpg
+*.asc
+*.key
+secrets/
