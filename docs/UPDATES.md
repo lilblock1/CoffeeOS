@@ -4,8 +4,9 @@ CoffeeOS can now update an installed machine without reinstalling from a new ISO
 There are two independent update sources:
 
 1. **Debian 13 Trixie Stable** — security fixes and normal base-system packages.
-2. **CoffeeOS signed APT feed** — CoffeeOS-owned files, CoffeeKernel, and optimized
-   `+coffee` packages produced by the CoffeeOS build pipeline.
+2. **CoffeeOS signed GitHub feed** — CoffeeOS-owned files, CoffeeKernel, and optimized
+   `+coffee` packages are served from the project's GitHub Pages APT repository
+   at `https://lilblock1.github.io/CoffeeOS`.
 
 The live ISO refuses update installation. Updates are for installed systems only.
 
@@ -28,7 +29,17 @@ polkit. A systemd timer checks every six hours (with randomized delay) and store
 non-sensitive status in `/var/lib/coffeeos/update-status.json`. It does not
 silently install updates.
 
-## Configure the CoffeeOS release feed
+## GitHub update source
+
+Installed CoffeeOS systems use `lilblock1/CoffeeOS` as their built-in update source. On the first installed-system check, CoffeeOS downloads the public OpenPGP key from the project's GitHub Pages deployment and configures APT with `Signed-By=`. The development image defaults to the `dev` channel.
+
+```bash
+sudo coffee-update use-github dev
+```
+
+`sudo coffee-update clear-feed` disables automatic GitHub updates without touching Debian Stable sources.
+
+## Configure a custom CoffeeOS release feed
 
 CoffeeOS never enables an unsigned remote repository. Export the publisher's
 OpenPGP **public** key, then on a client:
@@ -92,3 +103,12 @@ Optimized Debian-derived packages (Mesa, PipeWire, wlroots, etc.) remain their
 own `.deb` packages with `+coffee` versions. CoffeeKernel also remains a normal
 kernel `.deb`. A signed CoffeeOS repository can therefore update each component
 through standard APT/dpkg transactions rather than replacing the root filesystem.
+
+
+## GitHub publishing behavior
+
+CoffeeOS userspace changes can publish a new signed `coffeeos-system` package to the **Dev** GitHub Pages channel without building a new ISO. The package version includes the Git commit count, so APT sees each published source update as newer than the previous one.
+
+A tested CoffeeKernel release also carries the current `coffeeos-system` package, allowing the signed GitHub feed to publish kernel and userspace updates together.
+
+The publisher requires the repository secret `COFFEEOS_GPG_PRIVATE_KEY` and, when the key is protected, `COFFEEOS_GPG_PASSPHRASE`. Only the public key is deployed to clients.
