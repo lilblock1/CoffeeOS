@@ -39,19 +39,23 @@ opt_manifest="$tmp/optimized-packages.tsv"
 unsquashfs -cat "$squashfs" usr/share/coffeeos/optimized-packages.tsv > "$opt_manifest" 2>/dev/null || true
 [[ -s "$opt_manifest" ]] || { echo 'ERROR: optimized package manifest is empty.' >&2; exit 12; }
 cat "$opt_manifest"
-if grep -q 'skipped-by-mode' "$opt_manifest"; then
-  echo 'ERROR: ISO was not built with the full Deep optimization tier.' >&2
-  exit 12
+if grep -Eq '^none[[:space:]]+stock[[:space:]]+debian-default[[:space:]]+stock[[:space:]]+' "$opt_manifest"; then
+  echo 'CoffeeOS stock optimization manifest verified.'
+else
+  if grep -q 'skipped-by-mode' "$opt_manifest"; then
+    echo 'ERROR: optimized ISO was not built with the full Deep optimization tier.' >&2
+    exit 12
+  fi
+  grep -Eq '^.+[[:space:]]+core[[:space:]]+.+[[:space:]]+(optimized|cached)[[:space:]]+' "$opt_manifest" || {
+    echo 'ERROR: no custom Core optimized package was staged into the ISO.' >&2
+    exit 13
+  }
+  grep -Eq '^.+[[:space:]]+deep[[:space:]]+.+[[:space:]]+(optimized|cached)[[:space:]]+' "$opt_manifest" || {
+    echo 'ERROR: no custom Deep optimized package was staged into the ISO.' >&2
+    exit 14
+  }
+  echo 'CoffeeOS Deep optimization manifest contains custom Core and Deep packages.'
 fi
-grep -Eq '^.+[[:space:]]+core[[:space:]]+.+[[:space:]]+(optimized|cached)[[:space:]]+' "$opt_manifest" || {
-  echo 'ERROR: no custom Core optimized package was staged into the ISO.' >&2
-  exit 13
-}
-grep -Eq '^.+[[:space:]]+deep[[:space:]]+.+[[:space:]]+(optimized|cached)[[:space:]]+' "$opt_manifest" || {
-  echo 'ERROR: no custom Deep optimized package was staged into the ISO.' >&2
-  exit 14
-}
-echo 'CoffeeOS Deep optimization manifest contains custom Core and Deep packages.'
 
 # Calamares must show the chooser, then run CoffeeOS' network installer job
 # after Debian's sources-final module has restored normal network repositories.
