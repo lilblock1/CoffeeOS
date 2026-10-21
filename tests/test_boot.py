@@ -59,6 +59,8 @@ class TestBootRecipe(unittest.TestCase):
         self.assertIn('"${disk}2"',helper)
         self.assertNotIn('\\${BASH_SOURCE[0]}',s)
         self.assertNotIn('ISO="\\${1:-',s)
+        self.assertIn('normalize_xorriso_path()',s)
+        self.assertGreaterEqual(s.count('| normalize_xorriso_path'),2)
 
     def test_installed_safe_graphics_grub_entry(self):
         cfg=(LB/'config/includes.chroot/etc/grub.d/41_coffeeos_safe_graphics').read_text()
