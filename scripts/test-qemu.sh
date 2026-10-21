@@ -29,4 +29,4 @@ case "$MODE" in
   *) echo 'Usage: test-qemu.sh [--bios|--uefi]' >&2; exit 2;;
 esac
 printf '%s\n' 'Starting interactive, read-only live ISO boot. No disk to overwrite is attached.'
-exec qemu-system-x86_64 "${args[@]}"
+qemu-system-x86_64 "${args[@]}"
