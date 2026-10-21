@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# CoffeeOS owns the user-facing installer command. Debian's maintained
+# install-debian helper remains the backend so installer integration stays
+# compatible with calamares-settings-debian.
+if command -v install-debian >/dev/null 2>&1; then
+  exec install-debian "$@"
+fi
+if command -v calamares >/dev/null 2>&1; then
+  exec calamares "$@"
+fi
+echo "CoffeeOS installer backend is not available." >&2
+exit 127

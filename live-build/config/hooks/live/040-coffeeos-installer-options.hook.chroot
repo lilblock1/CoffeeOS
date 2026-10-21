@@ -165,7 +165,20 @@ for p in candidates:
     print(f"CoffeeOS: disabled broken libpwquality dictionary validation in {p}")
 PY
 
-# Keep only the CoffeeOS-branded desktop launcher in the live menu.
-rm -f /usr/share/applications/install-debian.desktop /usr/share/applications/calamares.desktop
+# Keep only the CoffeeOS-branded installer launcher in menus/desktops.
+# Debian's installer packages can ship more than one launcher name, so remove
+# any desktop entry that identifies itself as "Install Debian" or directly
+# invokes install-debian/calamares. Preserve CoffeeOS' own launcher.
+find /usr/share/applications /etc/skel /home -type f -name '*.desktop' 2>/dev/null | while read -r entry; do
+    [ "$entry" = /usr/share/applications/coffeeos-installer.desktop ] && continue
+    if grep -Eqi '^(Name|GenericName)=.*Install Debian|^Exec=(install-debian|calamares)([[:space:]]|$)' "$entry"; then
+        rm -f -- "$entry"
+        echo "CoffeeOS: removed Debian installer launcher: $entry"
+    fi
+done
 
-echo 'CoffeeOS: custom Calamares branding and optional-software page enabled.'
+# Known Debian/Calamares launcher names are removed as a fallback even when
+# localized Name= fields make textual detection unreliable.
+rm -f   /usr/share/applications/install-debian.desktop   /usr/share/applications/calamares.desktop   /usr/share/applications/org.calamares.calamares.desktop   /usr/share/applications/org.debian.install-debian.desktop   /etc/skel/Desktop/install-debian.desktop   /etc/skel/Desktop/calamares.desktop
+
+echo 'CoffeeOS: custom Calamares branding and CoffeeOS-only installer launcher enabled.'
