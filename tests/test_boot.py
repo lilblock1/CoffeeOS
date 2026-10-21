@@ -72,5 +72,9 @@ class TestBootRecipe(unittest.TestCase):
         s=(ROOT/'scripts/boot-smoke-test.sh').read_text()
         self.assertIn('qemu-system-x86_64', s)
         self.assertIn("grep -q 'COFFEEOS_BOOT_OK'", s)
+        manual=(ROOT/'scripts/test-qemu.sh').read_text()
+        self.assertIn('OVMF_VARS_4M.fd', manual)
+        self.assertIn('mktemp --suffix=.fd', manual)
+        self.assertIn('if=pflash,format=raw,file=$tmpvars', manual)
 
 if __name__=='__main__': unittest.main()
