@@ -70,6 +70,9 @@ def run():
         "/usr/local/bin/coffeeos-installer",
         "/usr/local/bin/coffee-installer-preflight",
         "/usr/local/bin/coffee-installer-report",
+        "/usr/local/sbin/coffeeos-ci-install",
+        "/etc/systemd/system/coffeeos-ci-install.service",
+        "/etc/systemd/system/multi-user.target.wants/coffeeos-ci-install.service",
     ])
 
     selected = _selected_ids()
