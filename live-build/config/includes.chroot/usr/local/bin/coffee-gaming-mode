@@ -26,7 +26,7 @@ GAME_ID=${SteamAppId:-${SteamGameId:-}}
 USE_SCOPE=1
 # Per-user defaults are JSON and are parsed as data, never sourced as shell.
 if command -v coffee-gaming-preferences >/dev/null 2>&1; then
-  defaults=$(coffee-gaming-preferences show 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(bool(d.get("hud"))), int(bool(d.get("gamescope"))), int(bool(d.get("gamemode", True))))' 2>/dev/null || echo '0 0')
+  defaults=$(coffee-gaming-preferences show 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(bool(d.get("hud"))), int(bool(d.get("gamescope"))), int(bool(d.get("gamemode", True))))' 2>/dev/null || echo '0 0 1')
 else
   defaults='0 0 1'
 fi

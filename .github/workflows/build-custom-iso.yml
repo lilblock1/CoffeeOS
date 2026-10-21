@@ -36,6 +36,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate CoffeeOS Python and source tests
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -p 'test_desktop.py'
+          python3 -m unittest discover -s tests -p 'test_control_center.py'
+          python3 -m unittest discover -s tests -p 'test_updates.py'
+
       - name: Restore reusable CoffeeKernel cache
         id: coffeekernel-cache
         uses: actions/cache/restore@v4

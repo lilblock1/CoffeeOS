@@ -37,7 +37,7 @@ def main():
     a=p.parse_args(); d=read()
     if a.cmd=='show': print(json.dumps({k:d[k] for k in DEFAULTS},sort_keys=True)); return 0
     if a.cmd=='reset': d={'hud':False,'gamescope':False,'gamemode':True,'games':{}}; write(d); print(json.dumps({k:d[k] for k in DEFAULTS},sort_keys=True)); return 0
-    if a.cmd=='set': d[a.key]=a.value=='on'; write(d); print(json.dumps({'hud':d['hud'],'gamescope':d['gamescope']},sort_keys=True)); return 0
+    if a.cmd=='set': d[a.key]=a.value=='on'; write(d); print(json.dumps({k:d[k] for k in DEFAULTS},sort_keys=True)); return 0
     gid=str(a.game_id)
     if a.cmd=='game-show':
         merged={**{k:d[k] for k in DEFAULTS},'fps_limit':0,**d['games'].get(gid,{})}; print(json.dumps(merged,sort_keys=True)); return 0

@@ -37,6 +37,10 @@ class TestInPlaceUpdates(unittest.TestCase):
         with self.assertRaises(SystemExit): m.normalize_url('ftp://updates.example.com/coffeeos')
         text=UPDATER.read_text()
         self.assertIn("Signed-By: {KEYRING}",text)
+        self.assertIn("CHANNELS={'stable','beta','dev'}",text)
+        self.assertIn('ROLLBACK=',text)
+        self.assertIn('save_rollback',text)
+        self.assertIn('rollback-latest',text)
         self.assertIn("Refusing to install a secret signing key",text)
 
     def test_status_json_is_non_privileged(self):
@@ -77,7 +81,7 @@ class TestInPlaceUpdates(unittest.TestCase):
 
     def test_control_center_exposes_feed_and_install(self):
         text=(INC/'usr/local/bin/coffee-control-center').read_text()
-        for phrase in ('Check Now','Install Updates','Update Source','set-feed','clear-feed'):
+        for phrase in ('Check Now','Install Updates','Update Source','set-feed','clear-feed','Set Update Channel','Rollback Last Update'):
             self.assertIn(phrase,text)
         self.assertIn("['pkexec','/usr/local/sbin/coffee-update','upgrade']",text)
 

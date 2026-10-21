@@ -147,7 +147,7 @@ def save_rollback():
         except ValueError: continue
         base=pkg.split(':',1)[0]
         if base!='coffeeos-system' and '-coffee' not in base: continue
-        p=run(['apt-get','download',f'{pkg}={version}'],capture=True)
+        p=subprocess.run(['apt-get','download',f'{pkg}={version}'],cwd=target,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False)
         if p.returncode==0: saved.append(f'{pkg}\t{version}')
     (target/'manifest.tsv').write_text('\n'.join(saved)+'\n')
     if not saved:

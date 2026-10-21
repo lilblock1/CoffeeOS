@@ -48,3 +48,18 @@ Coffee Control Center includes native lightweight pages for:
 ## First-boot welcome
 
 Installed CoffeeOS sessions show `coffee-first-boot` on the first desktop login only. The live ISO skips it. The welcome screen links directly to Display, Audio, Bluetooth, Updates and Software & Drivers pages and records completion in the user's CoffeeOS config directory.
+
+
+## Daily-driver controls
+
+Coffee Control Center now also covers:
+- Power and battery status, automatic lock/suspend, lock-before-sleep, suspend/hibernate and laptop lid behavior.
+- Pointer speed, natural scrolling, tap-to-click, keyboard repeat settings, keyboard layout, timezone, network time, locale and 12/24-hour panel clock format.
+- Account display name, avatar, password shortcut and opt-in automatic login.
+- CoffeeOS nftables firewall controls and persistent Do Not Disturb/notification timeout settings.
+- Default browser/text/image apps, startup application toggles, optional Flatpak + Flathub, and optional CUPS printing support.
+- Storage status, safe user/system cleanup, SMART health checks, CoffeeKernel/Debian fallback status, one-boot fallback selection, package rollback, build metadata and support-bundle creation.
+- Night Light with manual temperature and schedule.
+- Gaming Mode panel status, controller detection, MangoHud presets, and per-game GameMode/MangoHud/Gamescope/FPS-cap overrides.
+
+CoffeeOS keeps the Debian kernel installed as a recovery fallback and keeps the GRUB menu visible for five seconds. The updater saves up to five CoffeeOS/CoffeeKernel package snapshots before upgrades when the current versions can still be downloaded from configured repositories.

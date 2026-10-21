@@ -51,6 +51,8 @@ class TestDesktopConfig(unittest.TestCase):
         for name in ('coffee-wallpaper', 'waybar', 'mako', 'coffee-hardware-settings display-restore', 'coffee-first-boot'):
             self.assertIn(name,autostart)
         self.assertNotIn('coffee-quick-settings', (CHROOT/'etc/xdg/labwc/rc.xml').read_text())
+        for service in ('coffee-idle-manager','coffee-night-light','udiskie'):
+            self.assertIn(service,autostart)
 
     def test_panel_launcher_notifications_and_packages(self):
         bar=json.loads((CHROOT/'etc/xdg/waybar/config.jsonc').read_text())
@@ -59,12 +61,14 @@ class TestDesktopConfig(unittest.TestCase):
         self.assertIn('coffee-control-center',bar['custom/controlcenter']['on-click'])
         self.assertEqual(bar['network']['on-click'],'coffee-wifi-menu')
         self.assertEqual(bar['network']['on-click-right'],'nm-connection-editor')
+        self.assertIn('custom/gaming',bar['modules-right'])
+        self.assertEqual(bar['custom/gaming']['exec'],'coffee-gaming-indicator')
         fuzzel=configparser.ConfigParser(interpolation=None)
         fuzzel.read(CHROOT/'etc/xdg/fuzzel/fuzzel.ini')
         self.assertEqual(fuzzel.get('main','terminal'),'foot')
         self.assertTrue((CHROOT/'etc/xdg/mako/config').exists())
         packages=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
-        for pkg in ('cage','gtkgreet','python3-gi','gir1.2-gtk-3.0', 'waybar','labwc'):
+        for pkg in ('cage','gtkgreet','python3-gi','gir1.2-gtk-3.0','waybar','labwc','swaylock','swayidle','gammastep','upower','nftables','smartmontools','udiskie'):
             self.assertIn(pkg,packages)
 
 
@@ -89,7 +93,7 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_python_files_compile_without_gui(self):
         import ast
-        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot'):
+        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot','coffee-desktop-settings','coffee-night-light','coffee-gaming-indicator','coffee-support-bundle'):
             ast.parse((BIN/name).read_text())
 
 class TestDesktopAppearance(unittest.TestCase):

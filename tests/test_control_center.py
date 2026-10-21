@@ -11,9 +11,9 @@ SBIN=INC/'usr/local/sbin'
 class TestControlCenterIntegration(unittest.TestCase):
     def test_control_center_is_real_frontend(self):
         text=(BIN/'coffee-control-center').read_text()
-        for title in ('Overview','Display','Bluetooth','Audio','Performance','Gaming','Appearance','Software & Drivers','Updates'):
+        for title in ('Overview','Display','Bluetooth','Audio','Power & Battery','Input & Region','Account & Security','Apps & Startup','System & Recovery','Performance','Gaming','Appearance','Software & Drivers','Updates'):
             self.assertIn(title,text)
-        for backend in ('coffee-kernel-profile','coffee-gaming-setup','coffee-update','coffee-appearance','coffee-hardware-settings'):
+        for backend in ('coffee-kernel-profile','coffee-gaming-setup','coffee-update','coffee-appearance','coffee-hardware-settings','coffee-desktop-settings','coffee-admin-settings','coffee-support-bundle'):
             self.assertIn(backend,text)
         self.assertIn("['pkexec'",text)
         self.assertNotIn('shell=True',text)
@@ -23,6 +23,8 @@ class TestControlCenterIntegration(unittest.TestCase):
         self.assertIn('wlr-randr',pkgs)
         self.assertIn('pulseaudio-utils',pkgs)
         self.assertIn('bluez',pkgs)
+        for pkg in ('swaylock','swayidle','gammastep','upower','nftables','smartmontools','udiskie'):
+            self.assertIn(pkg,pkgs)
 
     def test_desktop_and_panel_integration(self):
         desktop=(INC/'usr/share/applications/coffee-control-center.desktop').read_text()
@@ -47,19 +49,21 @@ class TestControlCenterIntegration(unittest.TestCase):
 
     def test_update_backend_is_allow_listed_and_live_safe(self):
         text=(SBIN/'coffee-update').read_text()
-        for cmd in ("'status'","'list'","'check'","'upgrade'","'cleanup'","'set-feed'","'clear-feed'"):
+        for cmd in ("'status'","'list'","'check'","'upgrade'","'cleanup'","'set-feed'","'clear-feed'","'set-channel'","'rollback-list'","'rollback-latest'"):
             self.assertIn(cmd,text)
         self.assertIn("'boot=live' in Path('/proc/cmdline').read_text()",text)
         self.assertIn("['apt-get','-y','dist-upgrade']",text)
         self.assertIn("p.scheme not in ('https','file')",text)
         self.assertIn("Signed-By:",text)
+        self.assertIn('save_rollback',text)
+        self.assertIn("cwd=target",text)
         self.assertNotIn('shell=True',text)
         compat=(SBIN/'coffee-system-update').read_text()
         self.assertIn('exec /usr/local/sbin/coffee-update',compat)
 
     def test_phase5_iso_verifier_exists(self):
         verify=(ROOT/'scripts/verify-control-center-image.sh').read_text()
-        for path in ('/usr/local/bin/coffee-control-center','/usr/local/bin/coffee-hardware-settings','/usr/local/bin/coffee-first-boot','/usr/local/bin/coffee-gaming-preferences',
+        for path in ('/usr/local/bin/coffee-control-center','/usr/local/bin/coffee-hardware-settings','/usr/local/bin/coffee-first-boot','/usr/local/bin/coffee-desktop-settings','/usr/local/bin/coffee-lock','/usr/local/bin/coffee-night-light','/usr/local/bin/coffee-support-bundle','/usr/local/bin/coffee-gaming-preferences','/usr/local/sbin/coffee-admin-settings',
                      '/usr/local/sbin/coffee-update','/usr/share/applications/coffee-control-center.desktop'):
             self.assertIn(path,verify)
         main=(ROOT/'scripts/verify-iso.sh').read_text()
@@ -75,16 +79,17 @@ class TestGamingPreferences(unittest.TestCase):
         return subprocess.run(['python3',str(self.app),*args],env=self.env,text=True,capture_output=True,check=True)
 
     def test_defaults_set_reset_and_private_file(self):
-        data=json.loads(self.invoke('show').stdout); self.assertEqual(data,{'gamescope':False,'hud':False})
+        data=json.loads(self.invoke('show').stdout); self.assertEqual(data,{'gamemode':True,'gamescope':False,'hud':False})
         data=json.loads(self.invoke('set','hud','on').stdout); self.assertTrue(data['hud'])
         path=self.home/'cfg/coffeeos/gaming.json'; self.assertTrue(path.is_file())
         self.assertEqual(path.stat().st_mode & 0o777,0o600)
-        data=json.loads(self.invoke('reset').stdout); self.assertEqual(data,{'gamescope':False,'hud':False})
+        data=json.loads(self.invoke('reset').stdout); self.assertEqual(data,{'gamemode':True,'gamescope':False,'hud':False})
 
     def test_gaming_mode_reads_json_defaults_as_data(self):
         script=(BIN/'coffee-gaming-mode').read_text()
         self.assertIn('coffee-gaming-preferences show',script)
-        self.assertIn('--no-hud',script); self.assertIn('--no-gamescope',script)
+        self.assertIn('--no-hud',script); self.assertIn('--no-gamescope',script); self.assertIn('--no-gamemode',script); self.assertIn('--fps-limit',script)
+        self.assertIn('game-fps',(BIN/'coffee-gaming-preferences').read_text())
         self.assertNotIn('source "$HOME/.config/coffeeos/gaming',script)
 
 if __name__=='__main__': unittest.main()

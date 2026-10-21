@@ -19,6 +19,12 @@ for path in \
   /usr/local/bin/coffee-control-center \
   /usr/local/bin/coffee-hardware-settings \
   /usr/local/bin/coffee-first-boot \
+  /usr/local/bin/coffee-desktop-settings \
+  /usr/local/bin/coffee-lock \
+  /usr/local/bin/coffee-night-light \
+  /usr/local/bin/coffee-support-bundle \
+  /usr/local/bin/coffee-gaming-indicator \
+  /usr/local/sbin/coffee-admin-settings \
   /usr/local/bin/coffee-gaming-preferences \
   /usr/local/sbin/coffee-system-update \
   /usr/local/sbin/coffee-update \
