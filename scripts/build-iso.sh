@@ -33,6 +33,12 @@ if [[ -n ${COFFEE_LIVE_BUILD_CACHE_DIR:-} ]]; then
   ln -s "$COFFEE_LIVE_BUILD_CACHE_DIR/packages.chroot" "$WORK/cache/packages.chroot"
   echo "Using persistent live-build package cache: $COFFEE_LIVE_BUILD_CACHE_DIR"
 fi
+# Stamp reproducibility/support metadata into the image before packaging.
+mkdir -p "$RECIPE/config/includes.chroot/usr/share/coffeeos"
+commit="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '{"commit":"%s","built_at":"%s","version":"0.10.0-dev"}\n' "$commit" "$built_at" > "$RECIPE/config/includes.chroot/usr/share/coffeeos/build-info.json"
+
 # Always rebuild the updatable CoffeeOS system package from the current source.
 # This makes CoffeeOS-owned files part of dpkg state so future releases can
 # replace them through APT, and prevents a stale package from an earlier build.

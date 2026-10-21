@@ -150,6 +150,21 @@ def default_set(kind,desktop):
     for mime in mimes:
         rc,out=ch(['xdg-mime','default',desktop,mime],4)
         if rc: raise SystemExit(out)
+def clock_path(): return cfg()/'clock.json'
+def clock_show():
+    d=read_json('clock.json',{'format':'24h'}); print(json.dumps(d))
+def clock_set(fmt):
+    if fmt not in ('12h','24h'): raise SystemExit('invalid clock format')
+    write_json('clock.json',{'format':fmt})
+    system=Path('/etc/xdg/waybar/config.jsonc'); user=Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'waybar'/'config.jsonc'
+    try:
+        source=user if user.exists() else system; data=json.loads(source.read_text())
+        data.setdefault('clock',{})['format']='{:%A  •  %b %d   %I:%M %p}' if fmt=='12h' else '{:%A  •  %b %d   %H:%M}'
+        user.parent.mkdir(parents=True,exist_ok=True); user.write_text(json.dumps(data,indent=2)+'\n')
+        ch(['pkill','-USR2','-x','waybar'],3)
+    except (OSError,ValueError): pass
+    print(fmt)
+
 def account():
     import pwd
     u=pwd.getpwuid(os.getuid()); print(json.dumps({'username':u.pw_name,'display_name':u.pw_gecos.split(',')[0] or u.pw_name,'home':u.pw_dir,'avatar':str(Path.home()/'.face') if (Path.home()/'.face').exists() else ''}))
@@ -188,7 +203,7 @@ def main():
     sp.add_parser('storage'); sp.add_parser('clean-user'); sp.add_parser('notifications-show'); p=sp.add_parser('notifications-set'); p.add_argument('--dnd',choices=('on','off'),required=True); p.add_argument('--timeout',type=int,required=True); sp.add_parser('notifications-apply')
     sp.add_parser('startup-list'); p=sp.add_parser('startup-toggle'); p.add_argument('desktop_id'); p.add_argument('state',choices=('on','off'))
     sp.add_parser('defaults'); p=sp.add_parser('default-set'); p.add_argument('kind',choices=('browser','text','image')); p.add_argument('desktop_id')
-    sp.add_parser('account'); p=sp.add_parser('avatar'); p.add_argument('file'); sp.add_parser('controllers'); p=sp.add_parser('mangohud'); p.add_argument('preset',choices=('off','fps','compact','full')); sp.add_parser('flatpak-enable-flathub')
+    sp.add_parser('clock-show'); p=sp.add_parser('clock-set'); p.add_argument('format',choices=('12h','24h')); sp.add_parser('account'); p=sp.add_parser('avatar'); p.add_argument('file'); sp.add_parser('controllers'); p=sp.add_parser('mangohud'); p.add_argument('preset',choices=('off','fps','compact','full')); sp.add_parser('flatpak-enable-flathub')
     a=ap.parse_args()
     if a.cmd=='power-status': power_status()
     elif a.cmd=='power-set': power_set(a.lock,a.suspend,a.before_sleep=='on')
@@ -203,6 +218,8 @@ def main():
     elif a.cmd=='startup-toggle': startup_toggle(a.desktop_id,a.state=='on')
     elif a.cmd=='defaults': app_catalog()
     elif a.cmd=='default-set': default_set(a.kind,a.desktop_id)
+    elif a.cmd=='clock-show': clock_show()
+    elif a.cmd=='clock-set': clock_set(a.format)
     elif a.cmd=='account': account()
     elif a.cmd=='avatar': avatar(a.file)
     elif a.cmd=='controllers': controllers()

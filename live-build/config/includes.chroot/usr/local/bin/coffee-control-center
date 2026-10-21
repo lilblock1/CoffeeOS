@@ -428,10 +428,10 @@ class CoffeeControlCenter(Gtk.Window):
         self.power_lock=Gtk.SpinButton.new_with_range(0,240,1); self.row(box,'Auto-lock','Minutes before locking. 0 disables automatic locking.',self.power_lock)
         self.power_suspend=Gtk.SpinButton.new_with_range(0,480,5); self.row(box,'Auto-suspend','Minutes before suspend. 0 disables automatic suspend.',self.power_suspend)
         self.power_before_sleep=Gtk.Switch(); self.row(box,'Lock before sleep','Lock the session whenever the system is suspended.',self.power_before_sleep)
-        buttons=Gtk.Box(spacing=8); buttons.pack_start(self.button('Apply Idle Settings',self.apply_power,True),False,False,0); buttons.pack_start(self.button('Lock Now',lambda *_:self.launch(['coffee-lock'])),False,False,0); buttons.pack_start(self.button('Suspend Now',lambda *_:self.launch(['systemctl','suspend'])),False,False,0); box.pack_start(buttons,False,False,0)
+        buttons=Gtk.Box(spacing=8); buttons.pack_start(self.button('Apply Idle Settings',self.apply_power,True),False,False,0); buttons.pack_start(self.button('Lock Now',lambda *_:self.launch(['coffee-lock'])),False,False,0); buttons.pack_start(self.button('Suspend Now',lambda *_:self.launch(['systemctl','suspend'])),False,False,0); self.hibernate_button=self.button('Hibernate',lambda *_:self.launch(['systemctl','hibernate'])); buttons.pack_start(self.hibernate_button,False,False,0); box.pack_start(buttons,False,False,0)
         self.section(box,'Laptop lid')
         self.lid_action=Gtk.ComboBoxText()
-        for value,label in (('suspend','Suspend'),('lock','Lock'),('ignore','Do nothing'),('poweroff','Shut down')): self.lid_action.append(value,label)
+        for value,label in (('suspend','Suspend'),('hibernate','Hibernate'),('lock','Lock'),('ignore','Do nothing'),('poweroff','Shut down')): self.lid_action.append(value,label)
         self.lid_action.set_active_id('suspend'); self.row(box,'When lid closes','Saved system-wide; applies fully after the next reboot/login-manager restart.',self.lid_action)
         box.pack_start(self.button('Save Lid Behavior',self.apply_lid),False,False,0)
         return box
@@ -440,6 +440,8 @@ class CoffeeControlCenter(Gtk.Window):
         try: data=json.loads(raw) if rc==0 else {}
         except ValueError: data={}
         self.power_lock.set_value(int(data.get('lock_minutes',10))); self.power_suspend.set_value(int(data.get('suspend_minutes',0))); self.power_before_sleep.set_active(bool(data.get('lock_before_sleep',True)))
+        try: self.hibernate_button.set_sensitive('disk' in Path('/sys/power/state').read_text().split())
+        except OSError: self.hibernate_button.set_sensitive(False)
         batteries=data.get('batteries',[])
         if not batteries: self.power_battery.set_text('Battery: no battery detected (desktop/VM or unsupported hardware).')
         else:
@@ -473,8 +475,9 @@ class CoffeeControlCenter(Gtk.Window):
         self.time_status=self.label(''); box.pack_start(self.time_status,False,False,0)
         self.timezone=Gtk.Entry(); self.timezone.set_placeholder_text('America/Chicago'); self.row(box,'Timezone','IANA timezone such as America/Chicago.',self.timezone)
         self.ntp=Gtk.Switch(); self.row(box,'Automatic network time','Use systemd time synchronization.',self.ntp)
+        self.clock_format=Gtk.ComboBoxText(); self.clock_format.append('24h','24-hour'); self.clock_format.append('12h','12-hour'); self.row(box,'Clock format','Controls the CoffeeOS panel clock.',self.clock_format)
         self.locale_entry=Gtk.Entry(); self.locale_entry.set_placeholder_text('en_US.UTF-8'); self.row(box,'Locale','Must already be generated on the system.',self.locale_entry)
-        row=Gtk.Box(spacing=8); row.pack_start(self.button('Apply Timezone',self.apply_timezone),False,False,0); row.pack_start(self.button('Apply Network Time',self.apply_ntp),False,False,0); row.pack_start(self.button('Apply Locale',self.apply_locale),False,False,0); box.pack_start(row,False,False,0)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Apply Timezone',self.apply_timezone),False,False,0); row.pack_start(self.button('Apply Network Time',self.apply_ntp),False,False,0); row.pack_start(self.button('Apply Locale',self.apply_locale),False,False,0); row.pack_start(self.button('Apply Clock Format',self.apply_clock),False,False,0); box.pack_start(row,False,False,0)
         return box
     def refresh_input_region(self):
         rc,raw=capture(['coffee-desktop-settings','input-show'],4)
@@ -489,6 +492,10 @@ class CoffeeControlCenter(Gtk.Window):
         self.timezone.set_text(values.get('Timezone',''))
         self.ntp.set_active(values.get('NTP','no')=='yes')
         self.locale_entry.set_text(os.environ.get('LANG',''))
+        rc,raw=capture(['coffee-desktop-settings','clock-show'],3)
+        try: clock=json.loads(raw) if rc==0 else {}
+        except ValueError: clock={}
+        self.clock_format.set_active_id(clock.get('format','24h'))
     def apply_input(self,*_):
         self.action('Apply input settings',['coffee-desktop-settings','input-set','--pointer-speed',f'{self.input_pointer.get_value():.2f}','--natural-scroll','on' if self.input_natural.get_active() else 'off','--tap','on' if self.input_tap.get_active() else 'off','--repeat-rate',str(self.input_rate.get_value_as_int()),'--repeat-delay',str(self.input_delay.get_value_as_int()),'--layout',self.input_layout.get_text().strip() or 'us'])
     def apply_timezone(self,*_):
@@ -496,6 +503,8 @@ class CoffeeControlCenter(Gtk.Window):
         if zone: self.action('Set timezone',['pkexec','/usr/local/sbin/coffee-admin-settings','timezone-set',zone],lambda _rc:self.refresh_input_region())
     def apply_ntp(self,*_):
         self.action('Set network time',['pkexec','/usr/local/sbin/coffee-admin-settings','ntp-set','on' if self.ntp.get_active() else 'off'],lambda _rc:self.refresh_input_region())
+    def apply_clock(self,*_):
+        fmt=self.clock_format.get_active_id() or '24h'; self.action('Set clock format',['coffee-desktop-settings','clock-set',fmt])
     def apply_locale(self,*_):
         locale=self.locale_entry.get_text().strip()
         if locale: self.action('Set locale',['pkexec','/usr/local/sbin/coffee-admin-settings','locale-set',locale])
@@ -620,7 +629,11 @@ class CoffeeControlCenter(Gtk.Window):
         box.pack_start(self.label('Support bundles contain hardware/system diagnostics and warning-level logs, not saved Wi-Fi passwords or your full environment.','muted'),False,False,0)
         return box
     def refresh_system(self):
-        self.system_about.set_text(f'{os_name()} · Kernel {platform.release()} · {platform.machine()} · Memory {memory_text()}')
+        build=''
+        try:
+            meta=json.loads(Path('/usr/share/coffeeos/build-info.json').read_text()); build=f" · Build {meta.get('commit','unknown')[:12]} · {meta.get('built_at','')}"
+        except (OSError,ValueError): pass
+        self.system_about.set_text(f'{os_name()} · Kernel {platform.release()} · {platform.machine()} · Memory {memory_text()}{build}')
         rc,raw=capture(['coffee-desktop-settings','storage'],8)
         try: data=json.loads(raw) if rc==0 else {}
         except ValueError: data={}

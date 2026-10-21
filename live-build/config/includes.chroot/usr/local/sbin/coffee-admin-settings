@@ -9,7 +9,7 @@ NFTCONF=Path('/etc/nftables.conf')
 POWER=Path('/etc/systemd/logind.conf.d/60-coffeeos-power.conf')
 AUTOLOGIN=Path('/etc/coffeeos/autologin.conf')
 GRUBCFG=Path('/boot/grub/grub.cfg')
-LID={'suspend':'suspend','lock':'lock','ignore':'ignore','poweroff':'poweroff'}
+LID={'suspend':'suspend','hibernate':'hibernate','lock':'lock','ignore':'ignore','poweroff':'poweroff'}
 CHANNELS={'stable','beta','dev'}
 
 def root():
