@@ -17,6 +17,16 @@ class TestBootRecipe(unittest.TestCase):
         self.assertNotIn('vesamenu', cfg.lower())
         self.assertNotIn('splash', cfg.lower())
 
+    def test_coffeekernel_binary_hook_retargets_bios_autoboot(self):
+        hook=(LB/'config/hooks/live/060-prefer-coffeekernel.hook.binary').read_text()
+        self.assertIn('coffee_label="live-coffee"', hook)
+        self.assertIn('default $coffee_label', hook)
+        self.assertIn('ontimeout $coffee_label', hook)
+        self.assertIn('BIOS Syslinux default now selects', hook)
+        verify=(ROOT/'scripts/verify-iso.sh').read_text()
+        self.assertIn("BIOS default label '$bios_default' does not exist in live.cfg.", verify)
+        self.assertIn('BIOS Syslinux labels verified', verify)
+
     def test_uefi_grub_is_text_mode_with_timeout(self):
         cfg=(LB/'config/bootloaders/grub-pc/config.cfg').read_text()
         self.assertIn('set timeout=5', cfg)
