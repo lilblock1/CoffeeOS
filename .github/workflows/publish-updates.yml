@@ -236,15 +236,15 @@ jobs:
               # actual updater has a real version to replace.
               old=/tmp/coffeeos-old
               mkdir -p "$old/DEBIAN"
-              cat > "$old/DEBIAN/control" <<EOF
-Package: coffeeos-system
-Version: 0.10.0~dev1+git1
-Section: admin
-Priority: optional
-Architecture: all
-Maintainer: CoffeeOS Test
-Description: old CoffeeOS updater smoke-test package
-EOF
+              printf "%s\n" \
+                "Package: coffeeos-system" \
+                "Version: 0.10.0~dev1+git1" \
+                "Section: admin" \
+                "Priority: optional" \
+                "Architecture: all" \
+                "Maintainer: CoffeeOS Test" \
+                "Description: old CoffeeOS updater smoke-test package" \
+                > "$old/DEBIAN/control"
               dpkg-deb --root-owner-group --build "$old" /tmp/coffeeos-system-old.deb >/dev/null
               apt-get install -y /tmp/coffeeos-system-old.deb >/dev/null
 
