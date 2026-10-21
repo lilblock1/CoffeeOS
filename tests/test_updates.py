@@ -47,10 +47,39 @@ class TestInPlaceUpdates(unittest.TestCase):
         self.assertIn('snapshot-create',text)
         self.assertIn("Refusing to install a secret signing key",text)
 
+    def test_official_github_feed_is_built_in(self):
+        conf=(INC/'etc/coffeeos/update.conf').read_text()
+        self.assertIn('COFFEEOS_FEED_URL=https://lilblock1.github.io/CoffeeOS',conf)
+        self.assertIn('COFFEEOS_FEED_SUITE=dev',conf)
+        self.assertIn('COFFEEOS_GITHUB_AUTO=1',conf)
+        text=UPDATER.read_text()
+        self.assertIn("OFFICIAL_GITHUB_REPO='lilblock1/CoffeeOS'",text)
+        self.assertIn("OFFICIAL_GITHUB_FEED='https://lilblock1.github.io/CoffeeOS'",text)
+        self.assertIn("'use-github'",text)
+        self.assertIn('ensure_github_feed',text)
+        control=(INC/'usr/local/bin/coffee-control-center').read_text()
+        self.assertIn('Use GitHub Updates',control)
+        self.assertIn("'use-github'",control)
+
+    def test_update_packages_have_monotonic_git_version(self):
+        script=(ROOT/'scripts/build-coffeeos-system-package.sh').read_text()
+        self.assertIn('git -C "$ROOT" rev-list --count HEAD',script)
+        self.assertIn('+git${GIT_REVISION}',script)
+
+    def test_github_pages_publisher_handles_source_and_release_updates(self):
+        workflow=(ROOT/'.github/workflows/publish-updates.yml').read_text()
+        self.assertIn('push:',workflow)
+        self.assertIn('release:',workflow)
+        self.assertIn('build-coffeeos-system-package.sh',workflow)
+        self.assertIn('coffeeos-update-key.gpg',workflow)
+        self.assertIn('actions/deploy-pages@v4',workflow)
+        custom=(ROOT/'.github/workflows/build-custom-iso.yml').read_text()
+        self.assertIn('live-build/config/packages.chroot/coffeeos-system_*.deb',custom)
+
     def test_status_json_is_non_privileged(self):
         p=subprocess.run(['python3',str(UPDATER),'status','--json'],text=True,capture_output=True,check=True)
         data=json.loads(p.stdout)
-        for key in ('version','feed_url','feed_configured','upgrade_count','coffeeos_upgrade_count','reboot_required'):
+        for key in ('version','feed_url','feed_configured','feed_source','github_repo','github_auto','upgrade_count','coffeeos_upgrade_count','reboot_required'):
             self.assertIn(key,data)
 
     def test_coffeeos_system_package_builder_is_explicit_and_versioned(self):
