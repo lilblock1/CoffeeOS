@@ -395,6 +395,7 @@ jobs:
             dist/kernels/coffee/*.deb
             dist/kernels/coffee/SHA256SUMS
             dist/kernels/coffee/build-info.json
+            live-build/config/packages.chroot/coffeeos-system_*.deb
             dist/github-coffeekernel-build.log
             dist/github-custom-iso-build.log
             dist/iso-boot-layout.txt
@@ -414,5 +415,6 @@ jobs:
             dist/kernels/coffee/linux-headers-*-coffee_*.deb \
             dist/kernels/coffee/SHA256SUMS \
             dist/kernels/coffee/build-info.json \
+            live-build/config/packages.chroot/coffeeos-system_*.deb \
             --title "CoffeeOS CoffeeKernel ISO ${GITHUB_RUN_NUMBER}" \
             --notes "CoffeeOS development ISO built after the configured 20-meaningful-update cadence or an explicit maintainer request. Built on Debian 13 Trixie with a verified CoffeeKernel package pair. CoffeeKernel is reused from the persistent cache or a compatible prior release when kernel inputs are unchanged, and rebuilt automatically when required. Secure Boot support is not enabled for this development image."
