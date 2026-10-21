@@ -52,6 +52,11 @@ class TestBootRecipe(unittest.TestCase):
         helper=(LB/'config/includes.chroot/usr/local/sbin/coffeeos-ci-install').read_text()
         self.assertIn('unsquashfs',helper)
         self.assertIn('grub-install',helper)
+        self.assertNotIn('\\${disk}',helper)
+        self.assertIn('"${disk}1"',helper)
+        self.assertIn('"${disk}2"',helper)
+        self.assertNotIn('\\${BASH_SOURCE[0]}',s)
+        self.assertNotIn('ISO="\\${1:-',s)
 
     def test_installed_safe_graphics_grub_entry(self):
         cfg=(LB/'config/includes.chroot/etc/grub.d/41_coffeeos_safe_graphics').read_text()
