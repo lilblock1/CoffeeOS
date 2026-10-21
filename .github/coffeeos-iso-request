@@ -1,8 +1,11 @@
 # CoffeeOS ISO request
 
-Replacement CoffeeKernel ISO requested after the 20-update milestone.
-Includes the approved CoffeeOS Plymouth splash, animated steam/progress, and
-the corrected CoffeeKernel live-boot staging hook.
+Final replacement CoffeeKernel ISO request after validation passed.
+Includes:
+- approved CoffeeOS espresso Plymouth splash
+- animated steam
+- real boot progress bar
+- generated SVG-to-PNG Plymouth assets
+- corrected CoffeeKernel live-boot staging
 
-Validation retry after boot-hook regression-test update.
 Requested: 2026-10-21
