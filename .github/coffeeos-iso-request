@@ -1,8 +1,11 @@
 # CoffeeOS ISO request
 
-Rebuild CoffeeOS after fixing the Calamares installer launch path for Debian 13.
-The ISO must use calamares-install-debian so unpackfs runs privileged, retain
-the CoffeeKernel BIOS Syslinux fix, run the cached Deep optimization pipeline,
-verify the privileged installer wrapper inside SquashFS, and pass UEFI boot.
+Build the audited CoffeeOS replacement ISO after the installer and pipeline
+hardening pass. This build includes the privileged Debian 13 Calamares launcher,
+BIOS Syslinux retargeting, corrected Deep optimization sources/cache handling,
+CoffeeKernel headers for DKMS, restored contrib/non-free target repositories,
+Gamescope Backports handling, installer preflight, CI-helper cleanup, and the
+expanded static verification checks. Require final payload verification and
+UEFI live boot before publishing.
 
 Requested: 2026-10-21
