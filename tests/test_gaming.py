@@ -42,7 +42,9 @@ class TestGamingPackages(unittest.TestCase):
     def test_setup_is_stable_plus_controlled_backports(self):
         script=(SBIN/'coffee-gaming-setup').read_text()
         self.assertIn('Suites: trixie-backports',script)
-        self.assertIn('Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg',script)
+        self.assertIn('/etc/apt/sources.list.d/coffeeos-backports.sources',script)
+        self.assertIn('debian-archive-keyring.pgp',script)
+        self.assertIn('debian-archive-keyring.gpg',script)
         self.assertIn('-t trixie-backports gamescope',script)
         self.assertIn('steam-installer',script)
         self.assertIn('wine32:i386',script)
