@@ -1,0 +1,27 @@
+name: Validate CoffeeOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coffeeos-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Fast source and unit validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out CoffeeOS
+        uses: actions/checkout@v4
+
+      - name: Run CoffeeOS validation
+        run: |
+          set -Eeuo pipefail
+          bash scripts/validate.sh
