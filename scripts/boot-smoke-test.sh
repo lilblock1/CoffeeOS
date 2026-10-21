@@ -56,7 +56,8 @@ rc=$?
 set -e
 cat "$LOG"
 if grep -q 'COFFEEOS_BOOT_OK' "$LOG"; then
-  echo "[CoffeeOS] ${MODE#--^^} BOOT TEST PASSED: kernel + initramfs reached multi-user userspace."
+  mode_name=${MODE#--}
+  echo "[CoffeeOS] ${mode_name^^} BOOT TEST PASSED: kernel + initramfs reached multi-user userspace."
   exit 0
 fi
 echo "[CoffeeOS ERROR] ${MODE#--} boot test failed: COFFEEOS_BOOT_OK was not observed." >&2
