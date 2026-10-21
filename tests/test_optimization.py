@@ -141,6 +141,7 @@ class TestOptimizationPipeline(unittest.TestCase):
         self.assertIn("Lutris was unexpectedly preinstalled",verify)
         self.assertIn("CoffeeKernel not copied to ISO /live",verify)
         self.assertIn("was not selected by the live boot menu",verify)
+        self.assertIn("matching CoffeeKernel headers are not installed for DKMS drivers",verify)
         self.assertIn("CoffeeOS stock optimization manifest verified",verify)
         self.assertIn("CoffeeOS Deep optimization manifest contains custom Core and Deep packages",verify)
 
