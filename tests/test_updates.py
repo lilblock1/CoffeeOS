@@ -49,17 +49,25 @@ class TestInPlaceUpdates(unittest.TestCase):
 
     def test_official_github_feed_is_built_in(self):
         conf=(INC/'etc/coffeeos/update.conf').read_text()
-        self.assertIn('COFFEEOS_FEED_URL=https://lilblock1.github.io/CoffeeOS',conf)
+        self.assertIn('COFFEEOS_FEED_URL=',conf)
         self.assertIn('COFFEEOS_FEED_SUITE=dev',conf)
         self.assertIn('COFFEEOS_GITHUB_AUTO=1',conf)
         text=UPDATER.read_text()
         self.assertIn("OFFICIAL_GITHUB_REPO='lilblock1/CoffeeOS'",text)
-        self.assertIn("OFFICIAL_GITHUB_FEED='https://lilblock1.github.io/CoffeeOS'",text)
+        self.assertIn("OFFICIAL_GITHUB_RELEASE_BASE='https://github.com/lilblock1/CoffeeOS/releases/download'",text)
         self.assertIn("'use-github'",text)
-        self.assertIn('ensure_github_feed',text)
         control=(INC/'usr/local/bin/coffee-control-center').read_text()
         self.assertIn('Use GitHub Updates',control)
         self.assertIn("'use-github'",control)
+
+    def test_github_manifest_download_is_restricted_and_verified(self):
+        text=UPDATER.read_text()
+        self.assertIn('github_asset_url',text)
+        self.assertIn('validate_github_manifest',text)
+        self.assertIn('hashlib.sha256',text)
+        self.assertIn("['dpkg-deb','-f'",text)
+        self.assertIn("OFFICIAL_GITHUB_REPO='lilblock1/CoffeeOS'",text)
+        self.assertIn("'coffeeos-updates-'+channel",text)
 
     def test_update_packages_have_monotonic_git_version(self):
         script=(ROOT/'scripts/build-coffeeos-system-package.sh').read_text()
@@ -71,10 +79,10 @@ class TestInPlaceUpdates(unittest.TestCase):
         self.assertIn('push:',workflow)
         self.assertIn('release:',workflow)
         self.assertIn('build-coffeeos-system-package.sh',workflow)
-        self.assertIn('coffeeos-update-key.gpg',workflow)
-        self.assertIn('actions/deploy-pages@v4',workflow)
-        self.assertIn('short-lived GitHub update signing key',workflow)
-        self.assertIn('enablement: true',workflow)
+        self.assertIn('coffeeos-update.json',workflow)
+        self.assertIn('coffeeos-updates-$channel',workflow)
+        self.assertIn('gh release upload',workflow)
+        self.assertNotIn('actions/deploy-pages@v4',workflow)
         custom=(ROOT/'.github/workflows/build-custom-iso.yml').read_text()
         self.assertIn('live-build/config/packages.chroot/coffeeos-system_*.deb',custom)
 
