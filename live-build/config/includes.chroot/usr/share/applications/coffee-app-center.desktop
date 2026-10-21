@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CoffeeOS App Center
+Comment=Install curated CoffeeOS applications
+Exec=coffee-app-center
+Icon=coffeeos
+Terminal=false
+Categories=System;PackageManager;

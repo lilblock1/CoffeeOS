@@ -18,3 +18,6 @@ lxpolkit &
 coffee-idle-manager --replace >/dev/null 2>&1 &
 coffee-night-light --daemon >/dev/null 2>&1 &
 udiskie --tray >/dev/null 2>&1 &
+
+coffee-clipboard-history daemon >/dev/null 2>&1 &
+coffee-recovery-notify >/dev/null 2>&1 || true

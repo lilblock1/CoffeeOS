@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+import argparse,json,os,re,subprocess
+from datetime import datetime,timezone
+from pathlib import Path
+SNAPROOT=Path('/.snapshots')
+def run(argv,check=False,capture=False,timeout=1800):
+    kw={'text':True,'check':check,'timeout':timeout}
+    if capture:kw.update(stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+    return subprocess.run(argv,**kw)
+def root():
+    if os.geteuid()!=0:raise SystemExit('Root is required.')
+def fstype():
+    p=run(['findmnt','-n','-o','FSTYPE','/'],capture=True,timeout=5);return p.stdout.strip() if p.returncode==0 else ''
+def ensure():
+    if fstype()!='btrfs':raise SystemExit('Root filesystem is not Btrfs.')
+    if run(['btrfs','subvolume','show','/'],capture=True,timeout=10).returncode!=0:raise SystemExit('Root is Btrfs but / is not a subvolume; automatic snapshots are unavailable.')
+    if not SNAPROOT.exists():run(['btrfs','subvolume','create',str(SNAPROOT)],check=True,timeout=30)
+def create(label='manual'):
+    root();ensure();safe=re.sub(r'[^A-Za-z0-9._-]+','-',label)[:40].strip('-') or 'manual';dest=SNAPROOT/('coffeeos-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+safe);run(['btrfs','subvolume','snapshot','-r','/',str(dest)],check=True,timeout=120);print(dest)
+def list_():
+    if SNAPROOT.exists():
+        for p in sorted(SNAPROOT.glob('coffeeos-*'),reverse=True):print(p.name)
+def delete(name):
+    root()
+    if not re.fullmatch(r'coffeeos-[A-Za-z0-9._-]+',name):raise SystemExit('Invalid snapshot name.')
+    p=SNAPROOT/name
+    if not p.exists():raise SystemExit('Snapshot not found.')
+    run(['btrfs','subvolume','delete',str(p)],check=True,timeout=120)
+def status():print(json.dumps({'root_fstype':fstype(),'snapshots':len(list(SNAPROOT.glob('coffeeos-*'))) if SNAPROOT.exists() else 0,'recovery_recommended':Path('/var/lib/coffeeos/recovery-recommended').exists()},indent=2))
+def repair(kind):
+    root()
+    if kind in ('initramfs','all'):run(['update-initramfs','-u','-k','all'],check=True,timeout=900)
+    if kind in ('grub','all'):run(['update-grub'],check=True,timeout=300)
+    if kind=='uefi':
+        if not Path('/boot/efi').is_dir():raise SystemExit('/boot/efi is unavailable.')
+        run(['grub-install','--target=x86_64-efi','--efi-directory=/boot/efi','--bootloader-id=CoffeeOS'],check=True,timeout=300);run(['update-grub'],check=True)
+def main():
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);sp.add_parser('status');p=sp.add_parser('snapshot-create');p.add_argument('label',nargs='?',default='manual');sp.add_parser('snapshot-list');p=sp.add_parser('snapshot-delete');p.add_argument('name');p=sp.add_parser('repair');p.add_argument('kind',choices=('initramfs','grub','all','uefi'));sp.add_parser('fsck-next');sp.add_parser('clear-warning');a=ap.parse_args()
+    if a.cmd=='status':status()
+    elif a.cmd=='snapshot-create':create(a.label)
+    elif a.cmd=='snapshot-list':list_()
+    elif a.cmd=='snapshot-delete':delete(a.name)
+    elif a.cmd=='repair':repair(a.kind)
+    elif a.cmd=='fsck-next':root();Path('/forcefsck').touch();print('Filesystem check requested for next boot.')
+    elif a.cmd=='clear-warning':root();Path('/var/lib/coffeeos/recovery-recommended').unlink(missing_ok=True)
+if __name__=='__main__':main()

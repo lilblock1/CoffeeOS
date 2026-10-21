@@ -55,6 +55,12 @@ def _selected_ids():
 
 
 def run():
+    from pathlib import Path
+    if Path('/tmp/coffeeos-oem-mode').exists():
+        check_target_env_call(['mkdir','-p','/etc/coffeeos'])
+        check_target_env_call(['touch','/etc/coffeeos/oem-firstboot'])
+        libcalamares.utils.debug('CoffeeOS: new-owner onboarding marker installed')
+
     # The installer launcher and its live-only helpers belong only to the live
     # session. Calamares copies the SquashFS into the target, so remove them
     # from the installed system before finishing.

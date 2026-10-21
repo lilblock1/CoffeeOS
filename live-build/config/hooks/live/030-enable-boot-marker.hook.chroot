@@ -1,3 +1,6 @@
 #!/bin/sh
 set -eu
 systemctl enable coffeeos-boot-ok.service
+
+systemctl enable coffeeos-ci-install.service
+systemctl enable coffee-boot-health-start.service

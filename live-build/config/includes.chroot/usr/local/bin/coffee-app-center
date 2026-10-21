@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+import json,shutil,subprocess,threading
+from pathlib import Path
+import gi
+gi.require_version('Gtk','3.0')
+from gi.repository import GLib,Gtk
+CAT=Path('/usr/share/coffeeos/app-catalog.json')
+def installed(a):
+    if a['backend']=='apt':return all(subprocess.run(['dpkg-query','-W','-f=\${Status}',p],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True).returncode==0 for p in a['packages'])
+    return shutil.which('flatpak') is not None and subprocess.run(['flatpak','info',a['flatpak']],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+class App(Gtk.Window):
+    def __init__(self):
+        super().__init__(title='CoffeeOS App Center');self.set_default_size(760,620);self.apps=json.loads(CAT.read_text())['apps'];box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=10);box.set_border_width(18);self.add(box);self.search=Gtk.SearchEntry();self.search.set_placeholder_text('Search apps');self.search.connect('search-changed',lambda *_:self.refresh());box.pack_start(self.search,False,False,0);self.list=Gtk.ListBox();self.list.set_selection_mode(Gtk.SelectionMode.NONE);s=Gtk.ScrolledWindow();s.add(self.list);box.pack_start(s,True,True,0);self.status=Gtk.Label();self.status.set_xalign(0);box.pack_end(self.status,False,False,0);self.refresh()
+    def refresh(self):
+        q=self.search.get_text().lower()
+        for w in self.list.get_children():self.list.remove(w)
+        for a in self.apps:
+            if q and q not in (a['name']+' '+a['category']+' '+a.get('detail','')).lower():continue
+            row=Gtk.ListBoxRow();inner=Gtk.Box(spacing=10);inner.set_border_width(10);row.add(inner);labels=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=2);n=Gtk.Label(label=f"{a['name']}  ·  {a['category']}");n.set_xalign(0);d=Gtk.Label(label=a.get('detail',''));d.set_xalign(0);labels.pack_start(n,False,False,0);labels.pack_start(d,False,False,0);inner.pack_start(labels,True,True,0);on=installed(a);b=Gtk.Button(label='Installed' if on else 'Install');b.set_sensitive(not on);b.connect('clicked',self.install,a);inner.pack_end(b,False,False,0);self.list.add(row)
+        self.list.show_all()
+    def install(self,_b,a):
+        self.status.set_text('Installing '+a['name']+'…')
+        def worker():
+            if a['backend']=='apt':p=subprocess.run(['pkexec','/usr/local/sbin/coffee-platform-admin','app-install',a['id']],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+            else:
+                if not shutil.which('flatpak'):
+                    p=subprocess.run(['pkexec','/usr/local/sbin/coffee-admin-settings','install-feature','flatpak'],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+                    if p.returncode==0:subprocess.run(['coffee-desktop-settings','flatpak-enable-flathub'],check=False)
+                p=subprocess.run(['flatpak','install','--user','-y','flathub',a['flatpak']],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+            GLib.idle_add(self.done,p.returncode,p.stdout)
+        threading.Thread(target=worker,daemon=True).start()
+    def done(self,rc,out):self.status.set_text(('Installed.' if rc==0 else 'Install failed: ')+out[-300:]);self.refresh();return False
+def main():w=App();w.connect('destroy',Gtk.main_quit);w.show_all();Gtk.main()
+if __name__=='__main__':main()

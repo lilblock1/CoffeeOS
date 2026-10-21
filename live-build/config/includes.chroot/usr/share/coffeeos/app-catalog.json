@@ -1,0 +1,110 @@
+{
+  "apps": [
+    {
+      "id": "firefox",
+      "name": "Firefox ESR",
+      "category": "Internet",
+      "backend": "apt",
+      "packages": [
+        "firefox-esr"
+      ],
+      "detail": "Web browser"
+    },
+    {
+      "id": "thunderbird",
+      "name": "Thunderbird",
+      "category": "Internet",
+      "backend": "apt",
+      "packages": [
+        "thunderbird"
+      ],
+      "detail": "Email client"
+    },
+    {
+      "id": "libreoffice",
+      "name": "LibreOffice",
+      "category": "Office",
+      "backend": "apt",
+      "packages": [
+        "libreoffice"
+      ],
+      "detail": "Office suite"
+    },
+    {
+      "id": "vlc",
+      "name": "VLC",
+      "category": "Multimedia",
+      "backend": "apt",
+      "packages": [
+        "vlc"
+      ],
+      "detail": "Media player"
+    },
+    {
+      "id": "gimp",
+      "name": "GIMP",
+      "category": "Creative",
+      "backend": "apt",
+      "packages": [
+        "gimp"
+      ],
+      "detail": "Image editor"
+    },
+    {
+      "id": "krita",
+      "name": "Krita",
+      "category": "Creative",
+      "backend": "apt",
+      "packages": [
+        "krita"
+      ],
+      "detail": "Digital painting"
+    },
+    {
+      "id": "blender",
+      "name": "Blender",
+      "category": "Creative",
+      "backend": "apt",
+      "packages": [
+        "blender"
+      ],
+      "detail": "3D creation"
+    },
+    {
+      "id": "devtools",
+      "name": "Development Tools",
+      "category": "Development",
+      "backend": "apt",
+      "packages": [
+        "git",
+        "build-essential",
+        "python3-pip"
+      ],
+      "detail": "Git, compiler toolchain and Python tooling"
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "category": "Internet",
+      "backend": "flatpak",
+      "flatpak": "com.discordapp.Discord",
+      "detail": "Community chat"
+    },
+    {
+      "id": "spotify",
+      "name": "Spotify",
+      "category": "Multimedia",
+      "backend": "flatpak",
+      "flatpak": "com.spotify.Client",
+      "detail": "Music client"
+    },
+    {
+      "id": "heroic",
+      "name": "Heroic Games Launcher",
+      "category": "Gaming",
+      "backend": "flatpak",
+      "flatpak": "com.heroicgameslauncher.hgl",
+      "detail": "Epic/GOG launcher"
+    }
+  ]
+}

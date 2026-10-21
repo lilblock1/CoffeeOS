@@ -1,0 +1,10 @@
+[Unit]
+Description=CoffeeOS boot health start marker
+DefaultDependencies=no
+After=local-fs.target
+Before=multi-user.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/coffee-boot-health start
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+import argparse,json,os,pwd,re,subprocess
+from pathlib import Path
+CAT=Path('/usr/share/coffeeos/app-catalog.json')
+def run(argv,check=False,t=3600,env=None):return subprocess.run(argv,text=True,check=check,timeout=t,env=env)
+def root():
+    if os.geteuid()!=0:raise SystemExit('Root is required.')
+def apt(pkgs):
+    env=dict(os.environ,DEBIAN_FRONTEND='noninteractive');run(['apt-get','update'],check=True,t=900,env=env);run(['apt-get','-y','install',*pkgs],check=True,t=3600,env=env)
+def catalog():
+    try:return json.loads(CAT.read_text()).get('apps',[])
+    except (OSError,ValueError):return []
+def app_install(appid):
+    root();item=next((x for x in catalog() if x.get('id')==appid),None)
+    if not item or item.get('backend')!='apt':raise SystemExit('Unsupported APT app.')
+    apt(item.get('packages') or [])
+def firmware(action):root();run(['fwupdmgr','refresh','--force'] if action=='refresh' else ['fwupdmgr','update','-y'],check=True,t=1800)
+def share_install(user):root();pwd.getpwnam(user);apt(['samba','samba-common-bin']);run(['usermod','-aG','sambashare',user],t=30)
+def share_enable(user,path):
+    root();u=pwd.getpwnam(user);p=Path(path).resolve();home=Path(u.pw_dir).resolve()
+    if p!=home/'Public' and not str(p).startswith(str(home/'Public')+'/'):raise SystemExit('Sharing is restricted to the user Public folder.')
+    p.mkdir(parents=True,exist_ok=True);run(['chown',f'{user}:{u.pw_gid}',str(p)],t=30);conf=Path('/etc/samba/smb.conf');text=conf.read_text(errors='replace');block=f'\n[CoffeeShare]\n   path = {p}\n   browseable = yes\n   read only = no\n   guest ok = no\n   valid users = {user}\n'
+    text=re.sub(r'\n\[CoffeeShare\][\s\S]*?(?=\n\[|\Z)','',text);conf.write_text(text.rstrip()+block+'\n');run(['systemctl','enable','--now','smbd.service'],t=60);run(['systemctl','restart','smbd.service'],t=60)
+def share_disable():
+    root();conf=Path('/etc/samba/smb.conf')
+    if conf.exists():conf.write_text(re.sub(r'\n\[CoffeeShare\][\s\S]*?(?=\n\[|\Z)','',conf.read_text(errors='replace')).rstrip()+'\n')
+    run(['systemctl','restart','smbd.service'],t=60)
+def main():
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);p=sp.add_parser('app-install');p.add_argument('appid');p=sp.add_parser('firmware');p.add_argument('action',choices=('refresh','update'));p=sp.add_parser('share-install');p.add_argument('user');p=sp.add_parser('share-enable');p.add_argument('user');p.add_argument('path');sp.add_parser('share-disable');p=sp.add_parser('samba-password');p.add_argument('user');a=ap.parse_args()
+    if a.cmd=='app-install':app_install(a.appid)
+    elif a.cmd=='firmware':firmware(a.action)
+    elif a.cmd=='share-install':share_install(a.user)
+    elif a.cmd=='share-enable':share_enable(a.user,a.path)
+    elif a.cmd=='share-disable':share_disable()
+    elif a.cmd=='samba-password':root();pwd.getpwnam(a.user);os.execvp('smbpasswd',['smbpasswd','-a',a.user])
+if __name__=='__main__':main()

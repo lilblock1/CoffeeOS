@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+import argparse,json,os
+from pathlib import Path
+STATE=Path('/var/lib/coffeeos/boot-health.json');MARK=Path('/var/lib/coffeeos/boot-in-progress');WARN=Path('/var/lib/coffeeos/recovery-recommended')
+def load():
+    try:return json.loads(STATE.read_text())
+    except (OSError,ValueError):return {'incomplete_boots':0,'last_boot_ok':True}
+def save(d):STATE.parent.mkdir(parents=True,exist_ok=True);STATE.write_text(json.dumps(d,indent=2)+'\n')
+def main():
+    if os.geteuid()!=0:raise SystemExit('root required')
+    ap=argparse.ArgumentParser();ap.add_argument('action',choices=('start','success'));a=ap.parse_args();d=load()
+    if a.action=='start':
+        if MARK.exists():d['incomplete_boots']=int(d.get('incomplete_boots',0))+1;d['last_boot_ok']=False
+        MARK.parent.mkdir(parents=True,exist_ok=True);MARK.write_text('booting\n')
+        if d['incomplete_boots']>=2:WARN.write_text('Repeated incomplete boots detected.\n')
+    else:MARK.unlink(missing_ok=True);d['last_boot_ok']=True;d['incomplete_boots']=0
+    save(d)
+if __name__=='__main__':main()

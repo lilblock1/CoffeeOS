@@ -54,3 +54,17 @@ nftables
 smartmontools
 udiskie
 locales
+
+fwupd
+mokutil
+sbsigntool
+wl-clipboard
+network-manager-openvpn-gnome
+orca
+espeak-ng
+libnotify-bin
+lm-sensors
+nvme-cli
+pciutils
+bluez-obexd
+openssl

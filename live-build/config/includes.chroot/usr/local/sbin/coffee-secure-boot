@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+import argparse,os,subprocess
+from pathlib import Path
+KEYDIR=Path('/var/lib/coffeeos/secureboot')
+def run(argv,check=False,capture=False,t=120):
+    kw={'text':True,'check':check,'timeout':t}
+    if capture:kw.update(stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+    return subprocess.run(argv,**kw)
+def root():
+    if os.geteuid()!=0:raise SystemExit('Root is required.')
+def status():
+    p=run(['mokutil','--sb-state'],capture=True,t=10);print(p.stdout.strip());print('CoffeeOS MOK: '+('configured' if (KEYDIR/'MOK.key').exists() else 'not configured'));print('Development live ISO: not Secure-Boot signed.')
+def setup():
+    root();KEYDIR.mkdir(parents=True,exist_ok=True);os.chmod(KEYDIR,0o700);key=KEYDIR/'MOK.key';pem=KEYDIR/'MOK.pem';der=KEYDIR/'MOK.der'
+    if not key.exists():
+        run(['openssl','req','-new','-x509','-newkey','rsa:3072','-keyout',str(key),'-out',str(pem),'-nodes','-days','3650','-subj','/CN=CoffeeOS Local Machine Owner Key/'],check=True,t=60);run(['openssl','x509','-outform','DER','-in',str(pem),'-out',str(der)],check=True);os.chmod(key,0o600)
+    print('MOK created. Enroll it before enabling Secure Boot.')
+def enroll():
+    root();der=KEYDIR/'MOK.der'
+    if not der.exists():raise SystemExit('Run setup first.')
+    os.execvp('mokutil',['mokutil','--import',str(der)])
+def sign(version=None):
+    root();key=KEYDIR/'MOK.key';pem=KEYDIR/'MOK.pem'
+    if not key.exists():return
+    kernels=[Path('/boot')/f'vmlinuz-{version}'] if version else sorted(Path('/boot').glob('vmlinuz-*-coffee'))
+    for k in kernels:
+        if not k.is_file() or '-coffee' not in k.name:continue
+        tmp=Path(str(k)+'.coffee-signed');run(['sbsign','--key',str(key),'--cert',str(pem),'--output',str(tmp),str(k)],check=True,t=120);tmp.replace(k);print('Signed '+str(k))
+def main():
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);sp.add_parser('status');sp.add_parser('setup');sp.add_parser('enroll');p=sp.add_parser('sign');p.add_argument('version',nargs='?');a=ap.parse_args()
+    if a.cmd=='status':status()
+    elif a.cmd=='setup':setup()
+    elif a.cmd=='enroll':enroll()
+    elif a.cmd=='sign':sign(a.version)
+if __name__=='__main__':main()

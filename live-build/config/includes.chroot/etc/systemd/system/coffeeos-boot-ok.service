@@ -4,7 +4,7 @@ After=systemd-user-sessions.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'if [ -c /dev/ttyS0 ]; then printf "COFFEEOS_BOOT_OK\\n" > /dev/ttyS0; fi'
+ExecStart=/bin/sh -c '/usr/local/sbin/coffee-boot-health success || true; if [ -c /dev/ttyS0 ]; then printf "COFFEEOS_BOOT_OK\\n" > /dev/ttyS0; fi'
 RemainAfterExit=yes
 
 [Install]

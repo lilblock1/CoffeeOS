@@ -1,0 +1,10 @@
+[Unit]
+Description=CoffeeOS CI full-disk install smoke path
+ConditionKernelCommandLine=coffeeos.ci-install=1
+After=live-config.service local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/coffeeos-ci-install
+TimeoutStartSec=300
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import argparse,json,shutil,subprocess
+from pathlib import Path
+import gi
+gi.require_version('Gtk','3.0')
+from gi.repository import Gtk
+SQUASH=(Path('/run/live/medium/live/filesystem.squashfs'),Path('/lib/live/mount/medium/live/filesystem.squashfs'))
+def cap(argv,timeout=5):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,check=False);return p.returncode,p.stdout.strip()
+    except (OSError,subprocess.TimeoutExpired) as exc:return 127,str(exc)
+def report():
+    rows=[]
+    def add(name,ok,detail,critical=True):rows.append({'name':name,'ok':bool(ok),'detail':detail,'critical':critical})
+    add('unsquashfs',shutil.which('unsquashfs') is not None,'Required to unpack CoffeeOS.')
+    sq=next((p for p in SQUASH if p.is_file()),None);add('live filesystem',sq is not None,str(sq) if sq else 'filesystem.squashfs not found.')
+    mem=0
+    try:
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            if line.startswith('MemTotal:'):mem=int(line.split()[1])*1024
+    except (OSError,ValueError):pass
+    add('memory',mem>=2*1024**3,f'{mem/1024**3:.1f} GiB detected; 2 GiB minimum recommended.')
+    rc,raw=cap(['lsblk','-b','-J','-o','NAME,TYPE,SIZE,RM']);disks=[]
+    if rc==0:
+        try:disks=[d for d in json.loads(raw).get('blockdevices',[]) if d.get('type')=='disk' and not d.get('rm') and int(d.get('size') or 0)>=20*1024**3]
+        except (ValueError,TypeError):pass
+    add('install disk',bool(disks),f'{len(disks)} fixed disk(s) at least 20 GiB detected.')
+    missing=[x for x in ('calamares','parted','mkfs.ext4','mkfs.fat','mount') if shutil.which(x) is None]
+    add('installer tools',not missing,'All required tools found.' if not missing else 'Missing: '+', '.join(missing))
+    required=(Path('/etc/calamares/branding/coffeeos/branding.desc'),Path('/usr/lib/calamares/modules/coffeeapps/module.desc'))
+    miss=[str(x) for x in required if not x.is_file()];add('CoffeeOS modules',not miss,'Branding/modules present.' if not miss else 'Missing: '+', '.join(miss))
+    add('boot mode',True,'UEFI mode.' if Path('/sys/firmware/efi').exists() else 'Legacy BIOS mode.',False)
+    rc,net=cap(['nmcli','networking','connectivity','check'],8);add('network',rc==0 and net not in ('none','unknown'),f'Connectivity: {net or "unknown"}.',False)
+    return {'ok':all(x['ok'] or not x['critical'] for x in rows),'checks':rows}
+def launch(oem=False):
+    marker=Path('/tmp/coffeeos-oem-mode')
+    if oem:marker.write_text('1\n')
+    else:marker.unlink(missing_ok=True)
+    exe='install-debian' if shutil.which('install-debian') else 'calamares';subprocess.Popen([exe],start_new_session=True)
+class Window(Gtk.Window):
+    def __init__(self):
+        super().__init__(title='CoffeeOS Installation Check');self.set_default_size(660,520);self.set_border_width(22)
+        box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=12);self.add(box);title=Gtk.Label(label='☕  CoffeeOS installation check');title.set_xalign(0);box.pack_start(title,False,False,0)
+        self.rows=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=6);box.pack_start(self.rows,True,True,0)
+        self.oem=Gtk.CheckButton(label='Install for someone else (new-owner onboarding)');box.pack_start(self.oem,False,False,0)
+        buttons=Gtk.Box(spacing=8);box.pack_end(buttons,False,False,0)
+        b=Gtk.Button(label='Save Installer Report');b.connect('clicked',lambda *_:subprocess.Popen(['coffee-installer-report'],start_new_session=True));buttons.pack_start(b,False,False,0)
+        b=Gtk.Button(label='Refresh');b.connect('clicked',lambda *_:self.refresh());buttons.pack_start(b,False,False,0)
+        self.go=Gtk.Button(label='Continue to Installer');self.go.connect('clicked',self.start);buttons.pack_end(self.go,False,False,0);self.refresh()
+    def refresh(self):
+        for w in self.rows.get_children():self.rows.remove(w)
+        data=report()
+        for item in data['checks']:
+            mark='✓' if item['ok'] else ('!' if not item['critical'] else '✕');lab=Gtk.Label(label=f"{mark}  {item['name']}: {item['detail']}");lab.set_xalign(0);lab.set_line_wrap(True);self.rows.pack_start(lab,False,False,0)
+        self.rows.show_all();self.go.set_sensitive(data['ok'])
+    def start(self,*_):launch(self.oem.get_active());self.destroy()
+def main():
+    ap=argparse.ArgumentParser();ap.add_argument('--json',action='store_true');ap.add_argument('--direct',action='store_true');ap.add_argument('--oem',action='store_true');a=ap.parse_args()
+    if a.json:
+        d=report();print(json.dumps(d,indent=2));return 0 if d['ok'] else 2
+    if a.direct:launch(a.oem);return 0
+    w=Window();w.connect('destroy',Gtk.main_quit);w.show_all();Gtk.main();return 0
+if __name__=='__main__':raise SystemExit(main())

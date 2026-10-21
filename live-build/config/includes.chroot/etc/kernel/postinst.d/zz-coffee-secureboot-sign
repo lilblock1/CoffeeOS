@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+[ -x /usr/local/sbin/coffee-secure-boot ] || exit 0
+[ -f /var/lib/coffeeos/secureboot/MOK.key ] || exit 0
+/usr/local/sbin/coffee-secure-boot sign "${1:-}" || true

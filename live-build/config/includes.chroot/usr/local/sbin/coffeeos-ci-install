@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+grep -qw 'coffeeos.ci-install=1' /proc/cmdline || exit 0
+disk=/dev/vda
+target=/target
+squash=
+for p in /run/live/medium/live/filesystem.squashfs /lib/live/mount/medium/live/filesystem.squashfs; do [[ -s $p ]] && squash=$p && break; done
+[[ -n $squash ]] || { printf 'COFFEEOS_CI_INSTALL_FAIL no-squashfs\n' >/dev/ttyS0; exit 2; }
+for x in unsquashfs parted mkfs.ext4 mkfs.fat grub-install update-grub; do command -v "$x" >/dev/null || { printf 'COFFEEOS_CI_INSTALL_FAIL missing-%s\n' "$x" >/dev/ttyS0; exit 3; }; done
+wipefs -af "$disk"
+parted -s "$disk" mklabel gpt
+parted -s "$disk" mkpart ESP fat32 1MiB 513MiB
+parted -s "$disk" set 1 esp on
+parted -s "$disk" mkpart root ext4 513MiB 100%
+partprobe "$disk";udevadm settle
+mkfs.fat -F32 "\${disk}1";mkfs.ext4 -F "\${disk}2"
+mkdir -p "$target";mount "\${disk}2" "$target";mkdir -p "$target/boot/efi";mount "\${disk}1" "$target/boot/efi"
+unsquashfs -f -d "$target" "$squash" >/dev/null
+root_uuid=$(blkid -s UUID -o value "\${disk}2");esp_uuid=$(blkid -s UUID -o value "\${disk}1")
+printf 'UUID=%s / ext4 defaults 0 1\nUUID=%s /boot/efi vfat umask=0077 0 1\n' "$root_uuid" "$esp_uuid" >"$target/etc/fstab"
+echo coffeeos-ci >"$target/etc/hostname";rm -f "$target/etc/machine-id";touch "$target/etc/machine-id"
+rm -f "$target/usr/share/applications/coffeeos-installer.desktop" "$target/usr/local/bin/coffeeos-installer" "$target/usr/local/bin/coffee-installer-preflight" "$target/usr/local/bin/coffee-installer-report"
+for d in dev dev/pts proc sys run; do mount --rbind "/$d" "$target/$d";mount --make-rslave "$target/$d";done
+chroot "$target" update-initramfs -u
+chroot "$target" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=CoffeeOS --removable
+chroot "$target" update-grub
+sync
+printf 'COFFEEOS_CI_INSTALL_OK\n' >/dev/ttyS0
+systemctl poweroff

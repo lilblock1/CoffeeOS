@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+import json,subprocess
+from pathlib import Path
+def cap(argv,t=6):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=t,check=False);return p.returncode,p.stdout.strip()
+    except Exception as exc:return 127,str(exc)
+def main():
+    temps=[]
+    for z in Path('/sys/class/thermal').glob('thermal_zone*'):
+        try:
+            raw=int((z/'temp').read_text().strip());temps.append({'zone':(z/'type').read_text().strip(),'celsius':round(raw/1000 if raw>1000 else raw,1)})
+        except (OSError,ValueError):pass
+    bat=[]
+    for b in Path('/sys/class/power_supply').glob('BAT*'):
+        def v(n):
+            try:return (b/n).read_text().strip()
+            except OSError:return ''
+        try:
+            full=float(v('energy_full') or v('charge_full') or 0);design=float(v('energy_full_design') or v('charge_full_design') or 0);hp=round(full/design*100,1) if full and design else None
+        except ValueError:hp=None
+        bat.append({'name':b.name,'capacity':v('capacity'),'status':v('status'),'health_percent':hp})
+    rc,swap=cap(['swapon','--show','--bytes','--noheadings']);rc2,failed=cap(['systemctl','--failed','--no-legend','--plain'])
+    print(json.dumps({'temperatures':temps,'batteries':bat,'swap':swap if rc==0 else '','failed_units':failed if rc2==0 else '','recovery_recommended':Path('/var/lib/coffeeos/recovery-recommended').exists()},indent=2))
+if __name__=='__main__':main()

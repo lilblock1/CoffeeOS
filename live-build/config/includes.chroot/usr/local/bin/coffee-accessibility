@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+import argparse,json,os,re,subprocess
+from pathlib import Path
+def home():return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')
+def statep():return home()/'coffeeos/accessibility.json'
+def read():
+    d={'high_contrast':False,'large_text':False,'reduce_motion':False,'cursor_size':24,'screen_reader':False}
+    try:d.update(json.loads(statep().read_text()))
+    except (OSError,ValueError):pass
+    return d
+def save(d):statep().parent.mkdir(parents=True,exist_ok=True);statep().write_text(json.dumps(d,indent=2)+'\n');os.chmod(statep(),0o600)
+def apply(d):
+    for ver in ('gtk-3.0','gtk-4.0'):
+        p=home()/ver/'settings.ini'
+        try:text=p.read_text()
+        except OSError:text='[Settings]\n'
+        def setv(k,v):
+            nonlocal text
+            pat=r'^'+re.escape(k)+r'=.*$';text=re.sub(pat,f'{k}={v}',text,flags=re.M) if re.search(pat,text,re.M) else text.rstrip()+f'\n{k}={v}\n'
+        setv('gtk-font-name','Cantarell 14' if d['large_text'] else 'Cantarell 11');setv('gtk-cursor-theme-size',str(d['cursor_size']));setv('gtk-enable-animations','0' if d['reduce_motion'] else '1')
+        if d['high_contrast']:setv('gtk-theme-name','HighContrast')
+        p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
+    if d['screen_reader']:
+        try:subprocess.Popen(['orca','--replace'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+        except OSError:pass
+    else:subprocess.run(['pkill','-x','orca'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+def main():
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);sp.add_parser('show');sp.add_parser('apply');p=sp.add_parser('set')
+    for x in ('high-contrast','large-text','reduce-motion','screen-reader'):p.add_argument('--'+x,choices=('on','off'))
+    p.add_argument('--cursor-size',type=int);a=ap.parse_args();d=read()
+    if a.cmd=='show':print(json.dumps(d));return
+    if a.cmd=='set':
+        for key,arg in (('high_contrast','high_contrast'),('large_text','large_text'),('reduce_motion','reduce_motion'),('screen_reader','screen_reader')):
+            v=getattr(a,arg)
+            if v is not None:d[key]=v=='on'
+        if a.cursor_size is not None:
+            if not 16<=a.cursor_size<=96:raise SystemExit('Cursor size must be 16..96')
+            d['cursor_size']=a.cursor_size
+        save(d)
+    apply(d);print(json.dumps(d))
+if __name__=='__main__':main()

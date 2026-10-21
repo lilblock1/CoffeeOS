@@ -9,3 +9,9 @@ gparted
 
 # Required by Calamares unpackfs to extract the live filesystem
 squashfs-tools
+
+parted
+dosfstools
+grub2-common
+grub-efi-amd64-bin
+grub-pc-bin

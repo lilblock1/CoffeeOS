@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+import argparse,json,os,subprocess,sys
+from pathlib import Path
+def base():return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home()/'.config')/'coffeeos'
+def statep():return base()/'clipboard.json'
+def histp():return base()/'clipboard-history.json'
+def enabled():
+    try:return bool(json.loads(statep().read_text()).get('enabled',False))
+    except (OSError,ValueError):return False
+def write_state(v):base().mkdir(parents=True,exist_ok=True);statep().write_text(json.dumps({'enabled':v})+'\n');os.chmod(statep(),0o600)
+def hist():
+    try:return json.loads(histp().read_text())
+    except (OSError,ValueError):return []
+def save(h):base().mkdir(parents=True,exist_ok=True);histp().write_text(json.dumps(h[:50],indent=2)+'\n');os.chmod(histp(),0o600)
+def capture():
+    data=sys.stdin.read(16385)
+    if data and len(data)<=16384:save([data]+[x for x in hist() if x!=data])
+def daemon():
+    if enabled():os.execvp('wl-paste',['wl-paste','--type','text','--watch','coffee-clipboard-history','capture'])
+def start():
+    write_state(True)
+    try:subprocess.Popen(['wl-paste','--type','text','--watch','coffee-clipboard-history','capture'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    except OSError:pass
+def pick():
+    h=hist()
+    if not h:raise SystemExit('Clipboard history is empty.')
+    labels=[f'{i+1}: '+x.replace('\n',' ↵ ')[:120] for i,x in enumerate(h)];p=subprocess.run(['fuzzel','--dmenu','--prompt','Clipboard > '],input='\n'.join(labels)+'\n',text=True,stdout=subprocess.PIPE,check=False)
+    if p.returncode:return
+    try:i=int(p.stdout.split(':',1)[0])-1
+    except ValueError:return
+    subprocess.run(['wl-copy'],input=h[i],text=True,check=False)
+def main():
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True)
+    for x in ('enable','disable','status','clear','daemon','capture','pick'):sp.add_parser(x)
+    a=ap.parse_args()
+    if a.cmd=='enable':start();print('Clipboard history enabled.')
+    elif a.cmd=='disable':write_state(False);subprocess.run(['pkill','-f','wl-paste --type text --watch coffee-clipboard-history capture'],check=False);print('Clipboard history disabled.')
+    elif a.cmd=='status':print(json.dumps({'enabled':enabled(),'entries':len(hist())}))
+    elif a.cmd=='clear':save([]);print('Clipboard history cleared.')
+    elif a.cmd=='daemon':daemon()
+    elif a.cmd=='capture':capture()
+    elif a.cmd=='pick':pick()
+if __name__=='__main__':main()

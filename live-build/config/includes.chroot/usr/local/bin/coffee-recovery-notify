@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -e
+[[ -f /var/lib/coffeeos/recovery-recommended ]] || exit 0
+command -v notify-send >/dev/null || exit 0
+notify-send -u critical -a CoffeeOS "CoffeeOS recovery recommended" "Repeated incomplete boots were detected. Open Control Center → Recovery."

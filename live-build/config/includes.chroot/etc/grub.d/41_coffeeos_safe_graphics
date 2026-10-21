@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+kernel=$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' ! -name '*-coffee*' -printf '%f\n' | sort -V | tail -1)
+[ -n "$kernel" ] || kernel=$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' -printf '%f\n' | sort -V | tail -1)
+[ -n "$kernel" ] || exit 0
+ver=\${kernel#vmlinuz-}
+[ -f "/boot/initrd.img-$ver" ] || exit 0
+uuid=$(grub-probe --target=fs_uuid / 2>/dev/null || true)
+[ -n "$uuid" ] || exit 0
+cat <<EOF
+menuentry 'CoffeeOS (Safe Graphics)' --class coffeeos {
+    search --no-floppy --fs-uuid --set=root $uuid
+    linux /boot/$kernel root=UUID=$uuid ro coffeeos.software-render=1 nomodeset
+    initrd /boot/initrd.img-$ver
+}
+EOF
