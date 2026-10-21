@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=CoffeeOS
+Description=CoffeeOS coffee-themed boot splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/coffeeos
+ScriptFile=/usr/share/plymouth/themes/coffeeos/coffeeos.script

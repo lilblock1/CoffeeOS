@@ -34,7 +34,7 @@ Section: admin
 Priority: optional
 Architecture: $ARCH
 Maintainer: CoffeeOS Community
-Depends: bash, python3, apt, ca-certificates, gnupg, curl, systemd
+Depends: bash, python3, apt, ca-certificates, gnupg, curl, systemd, plymouth, plymouth-themes
 Description: CoffeeOS desktop, updater, profiles and system integration
  Updatable CoffeeOS-owned files. Debian base packages remain managed by APT.
 CTRL
@@ -52,6 +52,10 @@ if [ -d /run/systemd/system ]; then
   systemctl enable --now coffee-memory-tune.service >/dev/null 2>&1 || true
   systemctl enable --now coffee-performance-daemon.service >/dev/null 2>&1 || true
   systemctl enable --now coffee-boot-health-start.service >/dev/null 2>&1 || true
+  if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+    plymouth-set-default-theme coffeeos >/dev/null 2>&1 || true
+    update-initramfs -u -k all >/dev/null 2>&1 || true
+  fi
   update-grub >/dev/null 2>&1 || true
 fi
 exit 0
@@ -75,10 +79,11 @@ for p in \
   usr/share/applications/coffee-power-menu.desktop \
   usr/share/applications/coffee-welcome.desktop \
   usr/share/applications/coffee-app-center.desktop \
-  usr/share/backgrounds/coffeeos usr/share/themes \
+  usr/share/backgrounds/coffeeos usr/share/themes usr/share/plymouth/themes/coffeeos \
   usr/share/icons/hicolor/scalable/apps/coffeeos.svg \
   usr/share/wayland-sessions/coffee.desktop usr/share/wayland-sessions/coffee-gaming.desktop usr/share/coffeeos \
   etc/coffeeos \
+  etc/default/grub.d/50-coffeeos-plymouth.cfg \
   etc/default/grub.d/60-coffeeos-recovery.cfg \
   etc/grub.d/41_coffeeos_safe_graphics \
   etc/kernel/postinst.d/zz-coffee-secureboot-sign \

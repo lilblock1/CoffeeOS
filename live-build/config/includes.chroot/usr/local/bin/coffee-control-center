@@ -184,6 +184,7 @@ class CoffeeControlCenter(Gtk.Window):
         self.add_page('system', 'System', self.system_page())
         self.add_page('hardware', 'Hardware & Firmware', self.hardware_page())
         self.add_page('recovery', 'Recovery', self.recovery_page())
+        self.add_page('kernel', 'Kernel', self.kernel_page())
         self.add_page('performance', 'Performance', self.performance_page())
         self.add_page('gaming', 'Gaming', self.gaming_page())
         self.add_page('appearance', 'Appearance', self.appearance_page())
@@ -202,7 +203,7 @@ class CoffeeControlCenter(Gtk.Window):
         scroll = Gtk.ScrolledWindow(); scroll.set_min_content_height(100); scroll.add(self.log)
         expander.add(scroll); bottom.pack_start(expander, False, True, 0)
 
-        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_network(); self.refresh_power(); self.refresh_input_region(); self.refresh_accessibility(); self.refresh_security(); self.refresh_apps(); self.refresh_system(); self.refresh_hardware(); self.refresh_recovery(); self.refresh_performance(); self.refresh_gaming_devices(); self.refresh_software(); self.refresh_updates()
+        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_network(); self.refresh_power(); self.refresh_input_region(); self.refresh_accessibility(); self.refresh_security(); self.refresh_apps(); self.refresh_system(); self.refresh_hardware(); self.refresh_recovery(); self.refresh_kernel(); self.refresh_performance(); self.refresh_gaming_devices(); self.refresh_software(); self.refresh_updates()
 
     def add_page(self, name, title, widget):
         scroll = Gtk.ScrolledWindow(); scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -822,6 +823,50 @@ class CoffeeControlCenter(Gtk.Window):
     def secureboot_sign(self,*_):self.action('Sign CoffeeKernel',['pkexec','/usr/local/sbin/coffee-secure-boot','sign'],lambda _rc:self.refresh_recovery())
 
 
+
+    # Kernel manager
+    def kernel_page(self):
+        box=self.page_box(); box.pack_start(self.label('Kernel Manager','title'),False,False,0)
+        box.pack_start(self.label('Manage CoffeeKernel and the Debian fallback without removing the currently running or last bootable kernel.','muted'),False,False,0)
+        self.kernel_status=self.label(''); box.pack_start(self.kernel_status,False,False,0)
+        self.kernel_combo=Gtk.ComboBoxText(); self.row(box,'Installed kernel','Choose a kernel to manage.',self.kernel_combo)
+        row=Gtk.Box(spacing=8)
+        row.pack_start(self.button('Use Next Boot',self.kernel_next,True),False,False,0)
+        row.pack_start(self.button('Pin',lambda *_:self.kernel_pin(True)),False,False,0)
+        row.pack_start(self.button('Unpin',lambda *_:self.kernel_pin(False)),False,False,0)
+        row.pack_start(self.button('Remove',self.kernel_remove),False,False,0)
+        row.pack_start(self.button('Refresh',lambda *_:self.refresh_kernel()),False,False,0)
+        box.pack_start(row,False,False,0)
+        box.pack_start(self.label('“Use Next Boot” changes only the next GRUB boot. Pinning prevents APT from replacing/removing that kernel package.','muted'),False,False,0)
+        return box
+    def refresh_kernel(self):
+        rc,raw=capture(['/usr/local/sbin/coffee-kernel-manager','list'],8)
+        try:data=json.loads(raw) if rc==0 else {}
+        except ValueError:data={}
+        current=self.kernel_combo.get_active_id(); self.kernel_combo.remove_all()
+        items=data.get('kernels',[])
+        for item in items:
+            tags=[]
+            if item.get('current'): tags.append('running')
+            tags.append('CoffeeKernel' if item.get('coffee') else 'Debian')
+            if item.get('held'): tags.append('pinned')
+            self.kernel_combo.append(item.get('version'),f"{item.get('version')}  ·  "+' · '.join(tags))
+        if current and any(x.get('version')==current for x in items):self.kernel_combo.set_active_id(current)
+        elif items:self.kernel_combo.set_active(0)
+        self.kernel_status.set_text(f"Running: {data.get('current','unknown')} · CoffeeKernel: {data.get('coffee_count',0)} · Debian fallback: {data.get('debian_count',0)}")
+    def selected_kernel(self):return self.kernel_combo.get_active_id() or ''
+    def kernel_next(self,*_):
+        version=self.selected_kernel()
+        if version and self.confirm('Boot this kernel next time?',version):
+            self.action('Set next-boot kernel',['pkexec','/usr/local/sbin/coffee-kernel-manager','next',version],lambda _rc:self.refresh_kernel())
+    def kernel_pin(self,state):
+        version=self.selected_kernel()
+        if version:self.action(('Pin' if state else 'Unpin')+' kernel',['pkexec','/usr/local/sbin/coffee-kernel-manager','pin' if state else 'unpin',version],lambda _rc:self.refresh_kernel())
+    def kernel_remove(self,*_):
+        version=self.selected_kernel()
+        if version and self.confirm('Remove selected kernel?',f'{version}\nCoffeeOS will refuse if this is the running or last bootable kernel.'):
+            self.action('Remove kernel',['pkexec','/usr/local/sbin/coffee-kernel-manager','remove',version],lambda _rc:self.refresh_kernel())
+
     # Performance
     def performance_page(self):
         box = self.page_box(); box.pack_start(self.label('Performance', 'title'), False, False, 0)
@@ -1169,7 +1214,7 @@ class CoffeeControlCenter(Gtk.Window):
 
 def main():
     parser=argparse.ArgumentParser(description='CoffeeOS system settings')
-    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','network','power','input','accessibility','security','apps','system','hardware','recovery','performance','gaming','appearance','software','updates'))
+    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','network','power','input','accessibility','security','apps','system','hardware','recovery','kernel','performance','gaming','appearance','software','updates'))
     args=parser.parse_args()
     apply_theme_style()
     win=CoffeeControlCenter()

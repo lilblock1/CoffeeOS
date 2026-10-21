@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Safe CoffeeOS kernel manager."""
+from __future__ import annotations
+import argparse,json,os,platform,re,subprocess
+from pathlib import Path
+
+BOOT=Path('/boot')
+GRUB=Path('/boot/grub/grub.cfg')
+
+def run(argv,check=False,capture=False,timeout=900):
+    kw={'text':True,'check':check,'timeout':timeout}
+    if capture: kw.update(stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+    return subprocess.run(argv,**kw)
+
+def root():
+    if os.geteuid()!=0: raise SystemExit('Root is required.')
+
+def live():
+    try: return 'boot=live' in Path('/proc/cmdline').read_text()
+    except OSError: return False
+
+def held_packages():
+    p=run(['apt-mark','showhold'],capture=True,timeout=10)
+    return set(p.stdout.splitlines()) if p.returncode==0 else set()
+
+def installed(pkg):
+    p=run(['dpkg-query','-W','-f=\${Status}',pkg],capture=True,timeout=10)
+    return p.returncode==0 and 'install ok installed' in p.stdout
+
+def grub_target(version):
+    if not GRUB.exists(): return ''
+    text=GRUB.read_text(errors='replace')
+    submenu=''
+    m=re.search(r"^\s*submenu '([^']+)'",text,re.M)
+    if m: submenu=m.group(1)
+    entries=re.findall(r"^\s*menuentry '([^']+)'",text,re.M)
+    candidates=[e for e in entries if version in e and 'recovery mode' not in e.lower()]
+    if not candidates: return ''
+    target=candidates[0]
+    return submenu+'>'+target if submenu and 'Advanced options' in submenu else target
+
+def inventory():
+    current=platform.release(); held=held_packages(); items=[]
+    for image in sorted(BOOT.glob('vmlinuz-*'),key=lambda p:p.name,reverse=True):
+        version=image.name.removeprefix('vmlinuz-'); pkg='linux-image-'+version
+        items.append({'version':version,'package':pkg,'current':version==current,
+          'coffee':'-coffee' in version,'held':pkg in held,
+          'package_installed':installed(pkg),'grub_entry':bool(grub_target(version)),
+          'initrd':(BOOT/('initrd.img-'+version)).exists()})
+    return items
+
+def show():
+    items=inventory()
+    print(json.dumps({'current':platform.release(),'kernels':items,
+      'coffee_count':sum(1 for x in items if x['coffee']),
+      'debian_count':sum(1 for x in items if not x['coffee']),
+      'grub_available':GRUB.exists()},indent=2))
+
+def require_version(version):
+    for item in inventory():
+        if item['version']==version: return item
+    raise SystemExit('Kernel is not installed: '+version)
+
+def next_boot(version):
+    root()
+    if live(): raise SystemExit('Kernel boot selection is disabled in the live session.')
+    require_version(version); target=grub_target(version)
+    if not target: raise SystemExit('No GRUB menu entry was found for '+version)
+    run(['grub-reboot',target],check=True,timeout=30)
+    print('Next boot set to '+version+'.')
+
+def pin(version,state):
+    root(); item=require_version(version)
+    if not item['package_installed']: raise SystemExit('Kernel package is not managed by dpkg: '+item['package'])
+    run(['apt-mark','hold' if state else 'unhold',item['package']],check=True,timeout=30)
+    print(('Pinned ' if state else 'Unpinned ')+item['package'])
+
+def remove(version):
+    root()
+    if live(): raise SystemExit('Kernel removal is disabled in the live session.')
+    item=require_version(version)
+    if item['current']: raise SystemExit('Refusing to remove the currently running kernel.')
+    items=inventory()
+    if len(items)<=1: raise SystemExit('Refusing to remove the last bootable kernel.')
+    if not any(x['version']!=version and x['initrd'] for x in items):
+        raise SystemExit('No alternate kernel with an initrd is available.')
+    if not item['package_installed']: raise SystemExit('Kernel package is not managed by dpkg: '+item['package'])
+    packages=[item['package']]; headers='linux-headers-'+version
+    if installed(headers): packages.append(headers)
+    env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
+    subprocess.run(['apt-get','-y','purge',*packages],check=True,text=True,timeout=1800,env=env)
+    run(['update-grub'],check=False,timeout=180)
+    print('Removed '+', '.join(packages))
+
+def main():
+    ap=argparse.ArgumentParser(); sp=ap.add_subparsers(dest='cmd',required=True)
+    sp.add_parser('list')
+    for name in ('next','pin','unpin','remove'):
+        p=sp.add_parser(name); p.add_argument('version')
+    a=ap.parse_args()
+    if a.cmd=='list': show()
+    elif a.cmd=='next': next_boot(a.version)
+    elif a.cmd=='pin': pin(a.version,True)
+    elif a.cmd=='unpin': pin(a.version,False)
+    elif a.cmd=='remove': remove(a.version)
+if __name__=='__main__': main()

@@ -68,3 +68,6 @@ nvme-cli
 pciutils
 bluez-obexd
 openssl
+
+plymouth
+plymouth-themes

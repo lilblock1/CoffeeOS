@@ -99,6 +99,20 @@ class TestDesktopConfig(unittest.TestCase):
             self.assertIn(pkg,packages)
 
 
+    def test_plymouth_boot_splash(self):
+        packages=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
+        self.assertIn('plymouth',packages)
+        self.assertIn('plymouth-themes',packages)
+        theme=CHROOT/'usr/share/plymouth/themes/coffeeos/coffeeos.plymouth'
+        script=CHROOT/'usr/share/plymouth/themes/coffeeos/coffeeos.script'
+        self.assertTrue(theme.exists()); self.assertTrue(script.exists())
+        self.assertIn('ModuleName=script',theme.read_text())
+        self.assertIn('CoffeeOS',script.read_text())
+        grub=(CHROOT/'etc/default/grub.d/50-coffeeos-plymouth.cfg').read_text()
+        self.assertIn('quiet',grub); self.assertIn('splash',grub)
+        hook=(ROOT/'live-build/config/hooks/live/050-coffeeos-plymouth.hook.chroot').read_text()
+        self.assertIn('plymouth-set-default-theme coffeeos',hook)
+
     def test_lock_screen_is_theme_aware(self):
         lock=(BIN/'coffee-lock').read_text()
         for theme in ('espresso-noir','latte-cream','caramel-sunrise','mocha-night','hazelnut-mist','macchiato-glow'):

@@ -1,0 +1,18 @@
+# CoffeeOS Plymouth theme
+Window.SetBackgroundTopColor(0.078, 0.055, 0.047);
+Window.SetBackgroundBottomColor(0.153, 0.098, 0.082);
+
+title.image = Image.Text("CoffeeOS", 0.95, 0.87, 0.78);
+title.sprite = Sprite(title.image);
+title.sprite.SetX(Window.GetWidth() / 2 - title.image.GetWidth() / 2);
+title.sprite.SetY(Window.GetHeight() / 2 - 42);
+
+subtitle.image = Image.Text("Brewing your session...", 0.75, 0.64, 0.56);
+subtitle.sprite = Sprite(subtitle.image);
+subtitle.sprite.SetX(Window.GetWidth() / 2 - subtitle.image.GetWidth() / 2);
+subtitle.sprite.SetY(Window.GetHeight() / 2 + 12);
+
+progress.image = Image.Text("•  •  •", 0.85, 0.60, 0.36);
+progress.sprite = Sprite(progress.image);
+progress.sprite.SetX(Window.GetWidth() / 2 - progress.image.GetWidth() / 2);
+progress.sprite.SetY(Window.GetHeight() / 2 + 52);

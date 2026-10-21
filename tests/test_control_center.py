@@ -57,6 +57,17 @@ class TestControlCenterIntegration(unittest.TestCase):
         for page in ('overview','display','audio','bluetooth','updates','software'):
             self.assertIn("'"+page+"'",control)
 
+    def test_kernel_manager_page_and_backend(self):
+        control=(BIN/'coffee-control-center').read_text()
+        self.assertIn("'kernel', 'Kernel'",control)
+        self.assertIn('Kernel Manager',control)
+        self.assertIn('coffee-kernel-manager',control)
+        manager=(ROOT/'live-build/config/includes.chroot/usr/local/sbin/coffee-kernel-manager').read_text()
+        self.assertIn('Refusing to remove the currently running kernel.',manager)
+        self.assertIn('Refusing to remove the last bootable kernel.',manager)
+        self.assertIn('grub-reboot',manager)
+        self.assertIn('apt-mark',manager)
+
     def test_update_backend_is_allow_listed_and_live_safe(self):
         text=(SBIN/'coffee-update').read_text()
         for cmd in ("'status'","'list'","'check'","'upgrade'","'cleanup'","'set-feed'","'clear-feed'","'set-channel'","'rollback-list'","'rollback-latest'"):
