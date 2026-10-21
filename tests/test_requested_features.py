@@ -26,7 +26,10 @@ def load_script(name,path):
 class TestRequestedCoffeeOSFeatures(unittest.TestCase):
     def test_binary_hook_verifies_live_build_coffeekernel_selection(self):
         auto=(ROOT/'live-build/auto/config').read_text()
-        self.assertIn('COFFEE_LINUX_FLAVOURS="$coffee_flavour amd64"',auto)
+        self.assertIn('COFFEE_LINUX_PACKAGES="linux-image-$coffee_version"',auto)
+        self.assertIn('COFFEE_LINUX_FLAVOURS=coffee',auto)
+        self.assertIn('--linux-packages "$COFFEE_LINUX_PACKAGES"',auto)
+        self.assertIn('--linux-flavours "$COFFEE_LINUX_FLAVOURS"',auto)
         init_hook=(ROOT/'live-build/config/hooks/live/045-coffeekernel-initramfs.hook.chroot').read_text()
         self.assertIn('update-initramfs -c -k "$version"',init_hook)
         hook=(ROOT/'live-build/config/hooks/live/060-prefer-coffeekernel.hook.binary').read_text()
