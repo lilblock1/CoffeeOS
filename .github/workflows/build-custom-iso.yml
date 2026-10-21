@@ -89,7 +89,7 @@ jobs:
             --pattern 'linux-headers-*-coffee_*.deb' \
             --pattern 'SHA256SUMS' \
             --dir "$seed"; then
-            printf '%s\n' "$tag" > "$seed/.release-tag"
+            printf "%s\n" "$tag" > "$seed/.release-tag"
             echo "[CoffeeOS kernel] Downloaded reusable kernel candidate from $tag."
           else
             echo "[CoffeeOS kernel] Release $tag does not contain a complete reusable kernel pair."
