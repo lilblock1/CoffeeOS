@@ -2,7 +2,7 @@
 """Coffee Desktop appearance/theme manager.
 
 CoffeeOS themes are complete presets: labwc, Waybar, Fuzzel, Mako, Foot,
-GTK3/GTK4, Control Center, Quick Settings and a matching wallpaper.
+GTK3/GTK4, Control Center, Wi-Fi menu and a matching wallpaper.
 All writes are confined to the invoking user's configuration directories.
 """
 from __future__ import annotations
@@ -166,14 +166,14 @@ def color_config(state):
 window#waybar {{ background: alpha(@bg, 0.96); color: @text; border: 1px solid {border}; border-radius: 13px; }}
 #custom-coffee {{ color: @accent; font-size: 13px; font-weight: bold; padding: 0 14px; }}
 #clock {{ font-weight: bold; }}
-#cpu, #memory, #network, #pulseaudio, #battery, #tray, #clock, #custom-quicksettings, #custom-power, #custom-updates {{ padding: 0 9px; }}
+#cpu, #memory, #network, #pulseaudio, #battery, #tray, #clock, #custom-controlcenter, #custom-power, #custom-updates {{ padding: 0 9px; }}
 #taskbar button {{ color: @muted; border-radius: 8px; margin: 4px 2px; padding: 0 9px; }}
 #taskbar button.active {{ background: @surface; color: @accent; }}
-#custom-quicksettings, #custom-power, #custom-updates {{ font-size: 16px; color: @accent; }}
+#custom-controlcenter, #custom-power, #custom-updates {{ font-size: 16px; color: @accent; }}
 #custom-power {{ padding-right: 14px; }}
 '''.format(**p)
     if state['effects']:
-        css += '#custom-coffee, #custom-power, #custom-quicksettings, #custom-updates { transition: background-color 120ms ease; }\n'
+        css += '#custom-coffee, #custom-power, #custom-controlcenter, #custom-updates { transition: background-color 120ms ease; }\n'
     fuzzel = '''[main]
 font=Cantarell:size=12
 terminal=foot
@@ -258,7 +258,7 @@ gtk-enable-animations={effects}
         'gtk-4.0/settings.ini': gtk_settings,
         'gtk-4.0/gtk.css': gtk_css(p),
         'coffeeos/control-center.css': app_css(p, 'coffee-control'),
-        'coffeeos/quick-settings.css': app_css(p, 'coffee'),
+        'coffeeos/wifi-menu.css': app_css(p, 'coffee-wifi'),
     }
 
 

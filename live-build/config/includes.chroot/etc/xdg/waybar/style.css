@@ -8,9 +8,9 @@
 window#waybar { background: alpha(@bg, 0.96); color: @text; border: 1px solid #62402f; border-radius: 13px; }
 #custom-coffee { color: @accent; font-size: 13px; font-weight: bold; padding: 0 14px; }
 #clock { font-weight: bold; }
-#cpu, #memory, #network, #pulseaudio, #battery, #tray, #clock, #custom-quicksettings, #custom-power, #custom-updates { padding: 0 9px; }
+#cpu, #memory, #network, #pulseaudio, #battery, #tray, #clock, #custom-controlcenter, #custom-power, #custom-updates { padding: 0 9px; }
 #taskbar button { color: @muted; border-radius: 8px; margin: 4px 2px; padding: 0 9px; }
 #taskbar button.active { background: @surface; color: @accent; }
-#custom-quicksettings, #custom-power, #custom-updates { font-size: 16px; color: @accent; }
+#custom-controlcenter, #custom-power, #custom-updates { font-size: 16px; color: @accent; }
 #custom-power { padding-right: 14px; }
-#custom-coffee, #custom-power, #custom-quicksettings, #custom-updates { transition: background-color 120ms ease; }
+#custom-coffee, #custom-power, #custom-controlcenter, #custom-updates { transition: background-color 120ms ease; }

@@ -25,12 +25,15 @@ class TestControlCenterIntegration(unittest.TestCase):
         desktop=(INC/'usr/share/applications/coffee-control-center.desktop').read_text()
         rc=(INC/'etc/xdg/labwc/rc.xml').read_text()
         waybar=(INC/'etc/xdg/waybar/config.jsonc').read_text()
-        quick=(BIN/'coffee-quick-settings').read_text()
+        wifi=(BIN/'coffee-wifi-menu').read_text()
         self.assertIn('Exec=coffee-control-center',desktop)
         self.assertIn('key="W-c"',rc)
         self.assertIn('command="coffee-control-center"',rc)
         self.assertIn('"on-click": "coffee-control-center"',waybar)
-        self.assertIn('Open Coffee Control Center',quick)
+        self.assertIn('coffee-wifi-menu',waybar)
+        self.assertIn("'nmcli'",wifi)
+        self.assertIn('nm-connection-editor',wifi)
+        self.assertNotIn('shell=True',wifi)
 
     def test_update_backend_is_allow_listed_and_live_safe(self):
         text=(SBIN/'coffee-update').read_text()

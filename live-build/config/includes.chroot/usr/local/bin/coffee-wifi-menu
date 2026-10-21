@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""CoffeeOS panel Wi-Fi menu.
+
+Provides the common NetworkManager actions directly from the Waybar network
+indicator while leaving advanced connection editing to nm-connection-editor.
+Commands are always passed as argv arrays; user-provided SSIDs/passwords are
+never evaluated by a shell.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import threading
+from pathlib import Path
+
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gdk, GLib, Gtk
+
+STYLE = b'''
+window.coffee-wifi { background: #140e0c; color: #f8eee5; border: 1px solid #62402f; }
+.coffee-wifi label { color: #f8eee5; }
+.coffee-wifi .title { color: #d89a5b; font-size: 18px; font-weight: bold; }
+.coffee-wifi .muted { color: #c0aa9a; font-size: 11px; }
+.coffee-wifi .network-name { font-weight: bold; }
+.coffee-wifi row.network-row { background: #271915; border: 1px solid #62402f;
+                               border-radius: 10px; margin: 4px 0; }
+.coffee-wifi row.network-row:hover { background: #39231c; }
+.coffee-wifi row.connected { border-color: #d89a5b; }
+.coffee-wifi button { background-image: none; background: #39241d; color: #f8eee5;
+                      border: 1px solid #62402f; border-radius: 8px; padding: 7px 11px; }
+.coffee-wifi button:hover { background: #523426; }
+.coffee-wifi button.suggested-action { background: #d89a5b; color: #fffaf3; }
+.coffee-wifi switch { background: #39231c; }
+.coffee-wifi switch:checked { background: #d89a5b; }
+.coffee-wifi scrolledwindow { background: transparent; }
+'''
+
+STYLE_PROVIDER = None
+ENV = os.environ.copy()
+ENV['LC_ALL'] = 'C'
+
+
+def config_home():
+    return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
+
+
+def apply_theme_style():
+    global STYLE_PROVIDER
+    screen = Gdk.Screen.get_default()
+    if screen is None:
+        return
+    try:
+        data = (config_home() / 'coffeeos' / 'wifi-menu.css').read_bytes()
+    except OSError:
+        data = STYLE
+    if STYLE_PROVIDER is None:
+        STYLE_PROVIDER = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(
+            screen, STYLE_PROVIDER, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    STYLE_PROVIDER.load_from_data(data)
+
+
+def capture(argv, timeout=20):
+    try:
+        proc = subprocess.run(
+            argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=timeout, check=False, env=ENV)
+        return proc.returncode, proc.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 127, str(exc)
+
+
+def split_nmcli(line):
+    """Split nmcli terse output while honoring its backslash escaping."""
+    parts, buf = [], []
+    escaped = False
+    for char in line:
+        if escaped:
+            buf.append(char)
+            escaped = False
+        elif char == '\\':
+            escaped = True
+        elif char == ':':
+            parts.append(''.join(buf))
+            buf = []
+        else:
+            buf.append(char)
+    if escaped:
+        buf.append('\\')
+    parts.append(''.join(buf))
+    return parts
+
+
+def signal_text(value):
+    try:
+        signal = max(0, min(100, int(value)))
+    except ValueError:
+        signal = 0
+    if signal >= 75:
+        bars = '▂▄▆█'
+    elif signal >= 50:
+        bars = '▂▄▆'
+    elif signal >= 25:
+        bars = '▂▄'
+    else:
+        bars = '▂'
+    return f'{bars}  {signal}%'
+
+
+class WifiMenu(Gtk.Window):
+    def __init__(self):
+        super().__init__(title='CoffeeOS Wi-Fi')
+        self.set_default_size(400, 500)
+        self.set_size_request(360, 380)
+        self.set_resizable(False)
+        self.set_decorated(False)
+        self.set_keep_above(True)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_pager_hint(True)
+        self.set_position(Gtk.WindowPosition.MOUSE)
+        self.get_style_context().add_class('coffee-wifi')
+
+        self.busy = False
+        self.updating_switch = False
+        self.wifi_device = ''
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        outer.set_border_width(16)
+        self.add(outer)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        outer.pack_start(header, False, False, 0)
+        title = Gtk.Label(label='☕  Wi-Fi')
+        title.set_xalign(0)
+        title.get_style_context().add_class('title')
+        header.pack_start(title, True, True, 0)
+        close = Gtk.Button(label='×')
+        close.set_tooltip_text('Close')
+        close.connect('clicked', lambda *_: self.destroy())
+        header.pack_end(close, False, False, 0)
+
+        radio_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        outer.pack_start(radio_row, False, False, 0)
+        radio_label = Gtk.Label(label='Wi-Fi')
+        radio_label.set_xalign(0)
+        radio_row.pack_start(radio_label, True, True, 0)
+        self.radio = Gtk.Switch()
+        self.radio.set_sensitive(False)
+        self.radio.connect('notify::active', self.toggle_wifi)
+        radio_row.pack_end(self.radio, False, False, 0)
+
+        self.status = Gtk.Label(label='Scanning for networks…')
+        self.status.set_xalign(0)
+        self.status.set_line_wrap(True)
+        self.status.get_style_context().add_class('muted')
+        outer.pack_start(self.status, False, False, 0)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_min_content_height(280)
+        self.networks = Gtk.ListBox()
+        self.networks.set_selection_mode(Gtk.SelectionMode.NONE)
+        scroll.add(self.networks)
+        outer.pack_start(scroll, True, True, 0)
+
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        outer.pack_end(footer, False, False, 0)
+        self.refresh_button = Gtk.Button(label='Refresh')
+        self.refresh_button.connect('clicked', lambda *_: self.refresh())
+        footer.pack_start(self.refresh_button, True, True, 0)
+        advanced = Gtk.Button(label='Advanced…')
+        advanced.connect('clicked', self.open_advanced)
+        footer.pack_start(advanced, True, True, 0)
+
+        self.connect('key-press-event', self.key_press)
+        self.refresh()
+
+    def key_press(self, _widget, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.destroy()
+            return True
+        return False
+
+    def set_status(self, text):
+        self.status.set_text(text)
+
+    def clear_networks(self):
+        for child in self.networks.get_children():
+            self.networks.remove(child)
+
+    def refresh(self):
+        if self.busy:
+            return
+        if shutil.which('nmcli') is None:
+            self.set_status('NetworkManager tools are not installed.')
+            return
+        self.busy = True
+        self.refresh_button.set_sensitive(False)
+        self.set_status('Scanning for nearby networks…')
+        threading.Thread(target=self._scan_worker, daemon=True).start()
+
+    def _scan_worker(self):
+        rc, radio = capture(['nmcli', 'radio', 'wifi'], timeout=5)
+        if rc != 0:
+            GLib.idle_add(self._render, False, '', [], radio or 'Could not read Wi-Fi state.')
+            return
+
+        enabled = radio.strip().lower() == 'enabled'
+        wifi_device = ''
+        rc_dev, devices = capture(
+            ['nmcli', '-t', '-e', 'yes', '-f', 'DEVICE,TYPE,STATE', 'device', 'status'],
+            timeout=5)
+        if rc_dev == 0:
+            for line in devices.splitlines():
+                fields = split_nmcli(line)
+                if len(fields) >= 3 and fields[1] == 'wifi':
+                    if not wifi_device or fields[2] == 'connected':
+                        wifi_device = fields[0]
+                    if fields[2] == 'connected':
+                        break
+
+        if not enabled:
+            GLib.idle_add(self._render, False, wifi_device, [], '')
+            return
+
+        rc_list, output = capture([
+            'nmcli', '-t', '-e', 'yes',
+            '-f', 'IN-USE,SSID,SIGNAL,SECURITY',
+            'device', 'wifi', 'list', '--rescan', 'yes'
+        ], timeout=20)
+        if rc_list != 0:
+            GLib.idle_add(self._render, True, wifi_device, [], output or 'Wi-Fi scan failed.')
+            return
+
+        by_ssid = {}
+        for line in output.splitlines():
+            fields = split_nmcli(line)
+            if len(fields) < 4:
+                continue
+            active, ssid, signal, security = fields[:4]
+            ssid = ssid.strip()
+            if not ssid:
+                continue
+            try:
+                strength = int(signal)
+            except ValueError:
+                strength = 0
+            current = by_ssid.get(ssid)
+            entry = {
+                'ssid': ssid,
+                'signal': strength,
+                'security': security.strip(),
+                'connected': active.strip() == '*',
+            }
+            if current is None:
+                by_ssid[ssid] = entry
+            else:
+                current['connected'] = current['connected'] or entry['connected']
+                if entry['signal'] > current['signal']:
+                    current['signal'] = entry['signal']
+                    if entry['security']:
+                        current['security'] = entry['security']
+
+        networks = sorted(
+            by_ssid.values(),
+            key=lambda item: (not item['connected'], -item['signal'], item['ssid'].lower()))
+        GLib.idle_add(self._render, True, wifi_device, networks, '')
+
+    def _render(self, enabled, wifi_device, networks, error):
+        self.busy = False
+        self.refresh_button.set_sensitive(True)
+        self.wifi_device = wifi_device
+        self.updating_switch = True
+        self.radio.set_active(enabled)
+        self.radio.set_sensitive(True)
+        self.updating_switch = False
+        self.clear_networks()
+
+        if error:
+            self.set_status(error.splitlines()[0])
+        elif not enabled:
+            self.set_status('Wi-Fi is off.')
+        elif networks:
+            connected = next((n['ssid'] for n in networks if n['connected']), None)
+            self.set_status(f'Connected to {connected}' if connected else 'Choose a network to connect.')
+        else:
+            self.set_status('No Wi-Fi networks found.')
+
+        for network in networks:
+            self.add_network(network)
+        self.networks.show_all()
+        return False
+
+    def add_network(self, network):
+        row = Gtk.ListBoxRow()
+        row.get_style_context().add_class('network-row')
+        if network['connected']:
+            row.get_style_context().add_class('connected')
+
+        content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        content.set_border_width(10)
+        row.add(content)
+
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        content.pack_start(labels, True, True, 0)
+
+        name = Gtk.Label(label=network['ssid'])
+        name.set_xalign(0)
+        name.set_ellipsize(3)
+        name.get_style_context().add_class('network-name')
+        labels.pack_start(name, False, False, 0)
+
+        security = network['security']
+        security_text = 'Open network' if security in ('', '--') else security
+        detail = Gtk.Label(label=f"{signal_text(str(network['signal']))}   ·   {security_text}")
+        detail.set_xalign(0)
+        detail.get_style_context().add_class('muted')
+        labels.pack_start(detail, False, False, 0)
+
+        button = Gtk.Button(label='Disconnect' if network['connected'] else 'Connect')
+        if not network['connected']:
+            button.get_style_context().add_class('suggested-action')
+        button.connect('clicked', self.network_action, network)
+        content.pack_end(button, False, False, 0)
+        self.networks.add(row)
+
+    def run_action(self, label, argv, callback=None):
+        if self.busy:
+            return
+        self.busy = True
+        self.refresh_button.set_sensitive(False)
+        self.set_status(label + '…')
+
+        def worker():
+            rc, output = capture(argv, timeout=30)
+            GLib.idle_add(self.finish_action, label, rc, output, callback)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_action(self, label, rc, output, callback):
+        self.busy = False
+        self.refresh_button.set_sensitive(True)
+        if callback is not None:
+            callback(rc, output)
+        elif rc == 0:
+            self.set_status(label + ' completed.')
+            self.refresh()
+        else:
+            self.set_status(output.splitlines()[0] if output else label + ' failed.')
+        return False
+
+    def toggle_wifi(self, widget, _param):
+        if self.updating_switch:
+            return
+        desired = 'on' if widget.get_active() else 'off'
+        self.radio.set_sensitive(False)
+
+        def done(rc, output):
+            self.radio.set_sensitive(True)
+            if rc == 0:
+                self.refresh()
+            else:
+                self.set_status(output.splitlines()[0] if output else 'Could not change Wi-Fi state.')
+                self.refresh()
+
+        self.run_action(
+            'Turning Wi-Fi ' + desired,
+            ['nmcli', 'radio', 'wifi', desired],
+            done)
+
+    def network_action(self, _button, network):
+        if network['connected']:
+            if self.wifi_device:
+                self.run_action(
+                    f"Disconnecting from {network['ssid']}",
+                    ['nmcli', 'device', 'disconnect', self.wifi_device])
+            else:
+                self.run_action(
+                    f"Disconnecting from {network['ssid']}",
+                    ['nmcli', 'connection', 'down', 'id', network['ssid']])
+            return
+
+        ssid = network['ssid']
+        secured = network['security'] not in ('', '--')
+
+        def first_try(rc, output):
+            if rc == 0:
+                self.set_status(f'Connected to {ssid}.')
+                self.refresh()
+            elif secured:
+                self.ask_password(ssid, output)
+            else:
+                self.set_status(output.splitlines()[0] if output else f'Could not connect to {ssid}.')
+
+        self.run_action(
+            f'Connecting to {ssid}',
+            ['nmcli', 'device', 'wifi', 'connect', ssid],
+            first_try)
+
+    def ask_password(self, ssid, failure_text=''):
+        dialog = Gtk.Dialog(title=f'Connect to {ssid}', transient_for=self, modal=True)
+        dialog.add_buttons('Cancel', Gtk.ResponseType.CANCEL, 'Connect', Gtk.ResponseType.OK)
+        area = dialog.get_content_area()
+        area.set_spacing(8)
+        area.set_border_width(14)
+
+        prompt = Gtk.Label(label=f'Password for {ssid}')
+        prompt.set_xalign(0)
+        area.pack_start(prompt, False, False, 0)
+
+        password = Gtk.Entry()
+        password.set_visibility(False)
+        password.set_invisible_char('•')
+        password.set_activates_default(True)
+        area.pack_start(password, False, False, 0)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+
+        if failure_text:
+            hint = Gtk.Label(label='This network needs credentials before it can connect.')
+            hint.set_xalign(0)
+            hint.set_line_wrap(True)
+            hint.get_style_context().add_class('muted')
+            area.pack_start(hint, False, False, 0)
+
+        dialog.show_all()
+        response = dialog.run()
+        secret = password.get_text()
+        dialog.destroy()
+
+        if response != Gtk.ResponseType.OK:
+            self.set_status('Connection cancelled.')
+            return
+        if not secret:
+            self.set_status('A password is required.')
+            return
+
+        self.run_action(
+            f'Connecting to {ssid}',
+            ['nmcli', 'device', 'wifi', 'connect', ssid, 'password', secret])
+
+    def open_advanced(self, *_):
+        if shutil.which('nm-connection-editor') is None:
+            self.set_status('Advanced network editor is not installed.')
+            return
+        try:
+            subprocess.Popen(['nm-connection-editor'], start_new_session=True)
+        except OSError as exc:
+            self.set_status(str(exc))
+
+
+def main():
+    apply_theme_style()
+    window = WifiMenu()
+    window.connect('destroy', Gtk.main_quit)
+    window.show_all()
+    Gtk.main()
+
+
+if __name__ == '__main__':
+    main()

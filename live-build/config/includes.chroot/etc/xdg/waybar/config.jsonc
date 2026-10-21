@@ -54,7 +54,8 @@
     "format-ethernet": "Ethernet",
     "format-disconnected": "Offline",
     "tooltip": true,
-    "on-click": "nm-connection-editor"
+    "on-click": "coffee-wifi-menu",
+    "on-click-right": "nm-connection-editor"
   },
   "pulseaudio": {
     "format": "Vol  {volume}%",

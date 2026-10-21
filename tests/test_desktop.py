@@ -54,8 +54,10 @@ class TestDesktopConfig(unittest.TestCase):
     def test_panel_launcher_notifications_and_packages(self):
         bar=json.loads((CHROOT/'etc/xdg/waybar/config.jsonc').read_text())
         self.assertEqual(bar['position'],'top')
-        self.assertIn('custom/quicksettings',bar['modules-right'])
-        self.assertIn('coffee-control-center',bar['custom/quicksettings']['on-click'])
+        self.assertIn('custom/controlcenter',bar['modules-right'])
+        self.assertIn('coffee-control-center',bar['custom/controlcenter']['on-click'])
+        self.assertEqual(bar['network']['on-click'],'coffee-wifi-menu')
+        self.assertEqual(bar['network']['on-click-right'],'nm-connection-editor')
         fuzzel=configparser.ConfigParser(interpolation=None)
         fuzzel.read(CHROOT/'etc/xdg/fuzzel/fuzzel.ini')
         self.assertEqual(fuzzel.get('main','terminal'),'foot')
@@ -86,7 +88,7 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_python_files_compile_without_gui(self):
         import ast
-        for name in ('coffee-quick-settings','coffee-power-menu','coffee-appearance'):
+        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance'):
             ast.parse((BIN/name).read_text())
 
 class TestDesktopAppearance(unittest.TestCase):
@@ -124,6 +126,7 @@ class TestDesktopAppearance(unittest.TestCase):
         self.assertTrue((self.home/'gtk-4.0/gtk.css').exists())
         self.assertTrue((self.home/'foot/foot.ini').exists())
         self.assertTrue((self.home/'coffeeos/control-center.css').exists())
+        self.assertTrue((self.home/'coffeeos/wifi-menu.css').exists())
         self.assertEqual(ET.parse(self.home/'labwc/rc.xml').findtext('theme/name'),'CoffeeOS-Latte-Cream')
 
     def test_effects_off_preserves_keybinds(self):
