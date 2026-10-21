@@ -26,11 +26,12 @@ def share_disable():
     if conf.exists():conf.write_text(re.sub(r'\n\[CoffeeShare\][\s\S]*?(?=\n\[|\Z)','',conf.read_text(errors='replace')).rstrip()+'\n')
     run(['systemctl','restart','smbd.service'],t=60)
 def main():
-    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);p=sp.add_parser('app-install');p.add_argument('appid');p=sp.add_parser('firmware');p.add_argument('action',choices=('refresh','update'));p=sp.add_parser('share-install');p.add_argument('user');p=sp.add_parser('share-enable');p.add_argument('user');p.add_argument('path');sp.add_parser('share-disable');p=sp.add_parser('samba-password');p.add_argument('user');a=ap.parse_args()
+    ap=argparse.ArgumentParser();sp=ap.add_subparsers(dest='cmd',required=True);p=sp.add_parser('app-install');p.add_argument('appid');p=sp.add_parser('firmware');p.add_argument('action',choices=('refresh','update'));p=sp.add_parser('share-install');p.add_argument('user');p=sp.add_parser('share-enable');p.add_argument('user');p.add_argument('path');sp.add_parser('share-disable');p=sp.add_parser('samba-password');p.add_argument('user');sp.add_parser('oem-finish');a=ap.parse_args()
     if a.cmd=='app-install':app_install(a.appid)
     elif a.cmd=='firmware':firmware(a.action)
     elif a.cmd=='share-install':share_install(a.user)
     elif a.cmd=='share-enable':share_enable(a.user,a.path)
     elif a.cmd=='share-disable':share_disable()
     elif a.cmd=='samba-password':root();pwd.getpwnam(a.user);os.execvp('smbpasswd',['smbpasswd','-a',a.user])
+    elif a.cmd=='oem-finish':root();Path('/etc/coffeeos/oem-firstboot').unlink(missing_ok=True);print('New-owner onboarding completed.')
 if __name__=='__main__':main()

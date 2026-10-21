@@ -18,6 +18,7 @@ STATE=Path('/var/lib/coffeeos/update-status.json')
 RELEASE=Path('/usr/share/coffeeos/release')
 ROLLBACK=Path('/var/lib/coffeeos/rollback')
 CHANNELS={'stable','beta','dev'}
+CHANGELOG=Path('/usr/share/coffeeos/changelog.json')
 
 
 def run(argv, *, check=False, capture=False, env=None):
@@ -64,6 +65,40 @@ def upgradable():
         if not line or line.startswith('Listing...'): continue
         lines.append(line)
     return lines
+
+def update_plan(lines=None):
+    lines=upgradable() if lines is None else lines
+    packages=[line.split('/',1)[0] for line in lines]
+    critical=('grub','shim','systemd','libc6','initramfs-tools')
+    high=('linux-image','linux-headers','nvidia','mesa','firmware','coffeeos-system')
+    medium=('network-manager','pipewire','wayland','labwc','greetd','calamares')
+    reasons=[]; level='low'
+    for name in packages:
+        if any(name.startswith(x) for x in critical):
+            level='critical'; reasons.append(name)
+        elif any(x in name for x in high) and level!='critical':
+            level='high'; reasons.append(name)
+        elif any(x in name for x in medium) and level not in ('critical','high'):
+            level='medium'; reasons.append(name)
+    return {'risk':level,'packages':packages,'reasons':sorted(set(reasons)),'reboot_likely':level in ('critical','high')}
+
+def print_plan(as_json=False):
+    result=update_plan()
+    if as_json: print(json.dumps(result,sort_keys=True)); return
+    print('Update safety: '+result['risk'].upper())
+    print('Packages: '+str(len(result['packages'])))
+    if result['reasons']: print('Sensitive components: '+', '.join(result['reasons']))
+
+def print_changelog():
+    try:
+        data=json.loads(CHANGELOG.read_text())
+    except (OSError,ValueError):
+        print('No CoffeeOS build changelog is available on this installation.')
+        return
+    print('CoffeeOS changes since '+str(data.get('baseline') or 'previous build')+':')
+    changes=data.get('changes') or []
+    if not changes: print('No recorded CoffeeOS source changes.')
+    for item in changes[:50]: print('• '+str(item))
 
 def coffee_lines(lines):
     keys=('coffeeos-system','linux-image-','linux-headers-')
@@ -189,6 +224,13 @@ def do_upgrade():
     root_required(); installed_only()
     env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
     run(['apt-get','update'],check=True,env=env)
+    lines_before=upgradable()
+    plan=update_plan(lines_before)
+    print('UPDATE_RISK='+plan['risk'].upper())
+    if plan['risk'] in ('high','critical') and Path('/usr/local/sbin/coffee-recovery').exists():
+        snap=subprocess.run(['/usr/local/sbin/coffee-recovery','snapshot-create','pre-update'],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False)
+        if snap.returncode==0: print('Btrfs pre-update snapshot: '+snap.stdout.strip())
+        else: print('Btrfs snapshot unavailable: '+snap.stdout.strip())
     snapshot=save_rollback()
     if snapshot: print('Rollback snapshot: '+snapshot)
     # dist-upgrade is required so new CoffeeKernel dependency sets can move forward.
@@ -254,6 +296,8 @@ def main():
     p=sub.add_parser('status'); p.add_argument('--json',action='store_true')
     sub.add_parser('list')
     p=sub.add_parser('check'); p.add_argument('--background',action='store_true')
+    p=sub.add_parser('plan'); p.add_argument('--json',action='store_true')
+    sub.add_parser('changelog')
     sub.add_parser('upgrade'); sub.add_parser('cleanup'); sub.add_parser('rollback-list'); sub.add_parser('rollback-latest'); p=sub.add_parser('set-channel'); p.add_argument('channel',choices=sorted(CHANNELS))
     p=sub.add_parser('set-feed'); p.add_argument('url'); p.add_argument('suite'); p.add_argument('public_key')
     sub.add_parser('clear-feed')
@@ -261,6 +305,8 @@ def main():
     if a.cmd=='status': status(a.json)
     elif a.cmd=='list': print('\n'.join(upgradable()))
     elif a.cmd=='check': do_check(a.background)
+    elif a.cmd=='plan': print_plan(a.json)
+    elif a.cmd=='changelog': print_changelog()
     elif a.cmd=='upgrade': do_upgrade()
     elif a.cmd=='cleanup': do_cleanup()
     elif a.cmd=='rollback-list': rollback_list()

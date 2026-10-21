@@ -45,6 +45,8 @@ if [ -d /run/systemd/system ]; then
   systemctl enable --now coffee-update-check.timer >/dev/null 2>&1 || true
   systemctl enable --now coffee-memory-tune.service >/dev/null 2>&1 || true
   systemctl enable --now coffee-performance-daemon.service >/dev/null 2>&1 || true
+  systemctl enable --now coffee-boot-health-start.service >/dev/null 2>&1 || true
+  update-grub >/dev/null 2>&1 || true
 fi
 exit 0
 POST
@@ -66,19 +68,29 @@ for p in \
   usr/share/applications/coffee-info.desktop \
   usr/share/applications/coffee-power-menu.desktop \
   usr/share/applications/coffee-welcome.desktop \
+  usr/share/applications/coffee-app-center.desktop \
   usr/share/backgrounds/coffeeos usr/share/themes \
   usr/share/icons/hicolor/scalable/apps/coffeeos.svg \
   usr/share/wayland-sessions/coffee.desktop usr/share/wayland-sessions/coffee-gaming.desktop usr/share/coffeeos \
   etc/coffeeos \
   etc/default/grub.d/60-coffeeos-recovery.cfg \
+  etc/grub.d/41_coffeeos_safe_graphics \
+  etc/kernel/postinst.d/zz-coffee-secureboot-sign \
+  etc/xdg/labwc/autostart \
   etc/systemd/journald.conf.d/60-coffeeos.conf \
   usr/lib/sysctl.d/60-coffeeos.conf \
   usr/lib/systemd/system/coffee-storage-tune.service \
   usr/lib/systemd/system/coffee-memory-tune.service \
   usr/lib/systemd/system/coffee-performance-daemon.service \
   usr/lib/systemd/system/coffee-update-check.service \
-  usr/lib/systemd/system/coffee-update-check.timer
+  usr/lib/systemd/system/coffee-update-check.timer \
+  etc/systemd/system/coffeeos-boot-ok.service \
+  etc/systemd/system/coffeeos-ci-install.service \
+  usr/lib/systemd/system/coffee-boot-health-start.service
   do copy_path "$p"; done
+
+# Live-media-only installer/CI helpers must not become installed package payload.
+rm -f "$WORK/usr/local/bin/coffeeos-installer"       "$WORK/usr/local/bin/coffee-installer-preflight"       "$WORK/usr/local/bin/coffee-installer-report"       "$WORK/usr/local/sbin/coffeeos-ci-install"       "$WORK/etc/systemd/system/coffeeos-ci-install.service" || true
 
 find "$WORK" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "$WORK" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete

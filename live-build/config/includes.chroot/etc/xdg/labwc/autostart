@@ -21,3 +21,4 @@ udiskie --tray >/dev/null 2>&1 &
 
 coffee-clipboard-history daemon >/dev/null 2>&1 &
 coffee-recovery-notify >/dev/null 2>&1 || true
+coffee-accessibility apply >/dev/null 2>&1 || true

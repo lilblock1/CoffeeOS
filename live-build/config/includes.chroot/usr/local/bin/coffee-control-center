@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import threading
@@ -174,11 +175,15 @@ class CoffeeControlCenter(Gtk.Window):
         self.add_page('display', 'Display', self.display_page())
         self.add_page('bluetooth', 'Bluetooth', self.bluetooth_page())
         self.add_page('audio', 'Audio', self.audio_page())
+        self.add_page('network', 'Network+', self.network_page())
         self.add_page('power', 'Power & Battery', self.power_page())
         self.add_page('input', 'Input & Region', self.input_region_page())
+        self.add_page('accessibility', 'Accessibility', self.accessibility_page())
         self.add_page('security', 'Account & Security', self.security_page())
         self.add_page('apps', 'Apps & Startup', self.apps_page())
-        self.add_page('system', 'System & Recovery', self.system_page())
+        self.add_page('system', 'System', self.system_page())
+        self.add_page('hardware', 'Hardware & Firmware', self.hardware_page())
+        self.add_page('recovery', 'Recovery', self.recovery_page())
         self.add_page('performance', 'Performance', self.performance_page())
         self.add_page('gaming', 'Gaming', self.gaming_page())
         self.add_page('appearance', 'Appearance', self.appearance_page())
@@ -197,7 +202,7 @@ class CoffeeControlCenter(Gtk.Window):
         scroll = Gtk.ScrolledWindow(); scroll.set_min_content_height(100); scroll.add(self.log)
         expander.add(scroll); bottom.pack_start(expander, False, True, 0)
 
-        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_power(); self.refresh_input_region(); self.refresh_security(); self.refresh_apps(); self.refresh_system(); self.refresh_performance(); self.refresh_gaming_devices(); self.refresh_software(); self.refresh_updates()
+        self.refresh_overview(); self.refresh_display(); self.refresh_bluetooth(); self.refresh_audio(); self.refresh_network(); self.refresh_power(); self.refresh_input_region(); self.refresh_accessibility(); self.refresh_security(); self.refresh_apps(); self.refresh_system(); self.refresh_hardware(); self.refresh_recovery(); self.refresh_performance(); self.refresh_gaming_devices(); self.refresh_software(); self.refresh_updates()
 
     def add_page(self, name, title, widget):
         scroll = Gtk.ScrolledWindow(); scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -284,7 +289,7 @@ class CoffeeControlCenter(Gtk.Window):
         for w in (self.overview_os, self.overview_kernel, self.overview_memory, self.overview_gpu): box.pack_start(w, False, False, 0)
         actions = Gtk.Box(spacing=8)
         actions.pack_start(self.button('Refresh', lambda *_: self.refresh_overview()), False, False, 0)
-        actions.pack_start(self.button('Network', lambda *_: self.launch(['nm-connection-editor'])), False, False, 0)
+        actions.pack_start(self.button('Network', lambda *_: self.stack.set_visible_child_name('network')), False, False, 0)
         actions.pack_start(self.button('Display', lambda *_: self.stack.set_visible_child_name('display')), False, False, 0)
         actions.pack_start(self.button('Audio', lambda *_: self.stack.set_visible_child_name('audio')), False, False, 0)
         actions.pack_start(self.button('Terminal Info', lambda *_: self.launch(['foot','-e','coffee-info'])), False, False, 0)
@@ -563,6 +568,8 @@ class CoffeeControlCenter(Gtk.Window):
     # Applications, defaults and startup
     def apps_page(self):
         box=self.page_box(); box.pack_start(self.label('Apps & Startup','title'),False,False,0)
+        self.section(box,'App Center')
+        box.pack_start(self.button('Open CoffeeOS App Center',lambda *_:self.launch(['coffee-app-center']),True),False,False,0)
         self.section(box,'Default applications')
         self.default_browser=Gtk.ComboBoxText(); self.row(box,'Web browser','Default for web links and HTML.',self.default_browser)
         self.default_text=Gtk.ComboBoxText(); self.row(box,'Text editor','Default for plain text files.',self.default_text)
@@ -571,6 +578,13 @@ class CoffeeControlCenter(Gtk.Window):
         self.section(box,'Startup applications')
         self.startup_list=Gtk.ListBox(); self.startup_list.set_selection_mode(Gtk.SelectionMode.NONE); box.pack_start(self.startup_list,False,False,0)
         box.pack_start(self.button('Refresh Startup Apps',lambda *_:self.refresh_apps()),False,False,0)
+        self.section(box,'Clipboard history')
+        self.clipboard_status=self.label(''); box.pack_start(self.clipboard_status,False,False,0)
+        cr=Gtk.Box(spacing=8); cr.pack_start(self.button('Enable',lambda *_:self.clipboard_action('enable')),False,False,0); cr.pack_start(self.button('Choose from History',lambda *_:self.launch(['coffee-clipboard-history','pick'])),False,False,0); cr.pack_start(self.button('Clear History',lambda *_:self.clipboard_action('clear')),False,False,0); cr.pack_start(self.button('Disable',lambda *_:self.clipboard_action('disable')),False,False,0); box.pack_start(cr,False,False,0)
+        self.section(box,'File sharing')
+        self.share_status=self.label('Share is restricted to your ~/Public folder.'); box.pack_start(self.share_status,False,False,0)
+        sr=Gtk.Box(spacing=8); sr.pack_start(self.button('Install Sharing Support',self.share_install),False,False,0); sr.pack_start(self.button('Set Share Password…',self.share_password),False,False,0); sr.pack_start(self.button('Share Public Folder',self.share_enable,True),False,False,0); sr.pack_start(self.button('Disable Share',self.share_disable),False,False,0); box.pack_start(sr,False,False,0)
+        box.pack_start(self.button('Send File over Bluetooth…',lambda *_:self.launch(['blueman-sendto'])),False,False,0)
         self.section(box,'Optional desktop features')
         feature=Gtk.Box(spacing=8); feature.pack_start(self.button('Install Flatpak + Flathub',self.install_flatpak),False,False,0); feature.pack_start(self.button('Install Printing Support',self.install_printing),False,False,0); box.pack_start(feature,False,False,0)
         box.pack_start(self.label('Flatpak and printer services stay out of the base image until you choose to install them. Removable drives are handled automatically by udiskie.', 'muted'),False,False,0)
@@ -593,6 +607,10 @@ class CoffeeControlCenter(Gtk.Window):
         for item in items:
             row=Gtk.ListBoxRow(); inner=Gtk.Box(spacing=8); inner.set_border_width(8); row.add(inner); labels=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=2); labels.pack_start(self.label(item.get('name',item.get('id',''))),False,False,0); labels.pack_start(self.label(item.get('id',''),'muted'),False,False,0); inner.pack_start(labels,True,True,0); sw=Gtk.Switch(); sw.set_active(bool(item.get('enabled'))); sw.connect('notify::active',self.startup_toggle,item.get('id','')); inner.pack_end(sw,False,False,0); self.startup_list.add(row)
         self.startup_list.show_all()
+        rc,raw=capture(['coffee-clipboard-history','status'],4)
+        try:clip=json.loads(raw) if rc==0 else {}
+        except ValueError:clip={}
+        self.clipboard_status.set_text(f"Clipboard history: {'enabled' if clip.get('enabled') else 'disabled'} · {clip.get('entries',0)} saved text item(s)")
     def startup_toggle(self,widget,_param,desktop_id):
         if desktop_id: self.action('Update startup application',['coffee-desktop-settings','startup-toggle',desktop_id,'on' if widget.get_active() else 'off'])
     def apply_defaults(self,*_):
@@ -602,6 +620,13 @@ class CoffeeControlCenter(Gtk.Window):
             if desktop:
                 rc,out=capture(['coffee-desktop-settings','default-set',kind,desktop],5); outputs.append(out or f'{kind}: '+('ok' if rc==0 else 'failed'))
         self.set_status('Default applications updated.'); self.set_log('\n'.join(outputs))
+    def clipboard_action(self,action):
+        self.action('Clipboard '+action,['coffee-clipboard-history',action],lambda _rc:self.refresh_apps())
+    def share_user(self): return os.environ.get('USER') or Path.home().name
+    def share_install(self,*_):self.action('Install file sharing',['pkexec','/usr/local/sbin/coffee-platform-admin','share-install',self.share_user()])
+    def share_password(self,*_):self.launch(['foot','-e','pkexec','/usr/local/sbin/coffee-platform-admin','samba-password',self.share_user()])
+    def share_enable(self,*_):self.action('Enable Public folder share',['pkexec','/usr/local/sbin/coffee-platform-admin','share-enable',self.share_user(),str(Path.home()/'Public')])
+    def share_disable(self,*_):self.action('Disable Public folder share',['pkexec','/usr/local/sbin/coffee-platform-admin','share-disable'])
     def install_flatpak(self,*_):
         if self.confirm('Install Flatpak?','Install Flatpak system packages, then enable Flathub for your user?'):
             self.action('Install Flatpak',['pkexec','/usr/local/sbin/coffee-admin-settings','install-feature','flatpak'],self.finish_flatpak_install)
@@ -661,6 +686,136 @@ class CoffeeControlCenter(Gtk.Window):
         if self.confirm('Rollback CoffeeOS packages?','Reinstall the most recent CoffeeOS/CoffeeKernel package snapshot saved immediately before an update.'):
             self.action('Rollback CoffeeOS update',['pkexec','/usr/local/sbin/coffee-update','rollback-latest'],lambda _rc:self.refresh_system())
     def support_bundle(self,*_): self.action('Create support bundle',['coffee-support-bundle'])
+
+
+
+    # Advanced network
+    def network_page(self):
+        box=self.page_box(); box.pack_start(self.label('Network+','title'),False,False,0)
+        self.network_status=self.label(''); box.pack_start(self.network_status,False,False,0)
+        self.network_connection=Gtk.ComboBoxText(); self.row(box,'Connection','Choose a saved NetworkManager connection.',self.network_connection)
+        self.network_dns=Gtk.Entry(); self.network_dns.set_placeholder_text('1.1.1.1, 1.0.0.1'); self.row(box,'Custom IPv4 DNS','Comma-separated DNS addresses. Blank restores automatic DNS.',self.network_dns)
+        self.network_metered=Gtk.ComboBoxText()
+        for v,l in (('unknown','Automatic'),('no','Not metered'),('yes','Metered')): self.network_metered.append(v,l)
+        self.network_metered.set_active_id('unknown'); self.row(box,'Metered connection','Useful for mobile hotspots and limited connections.',self.network_metered)
+        self.network_priority=Gtk.SpinButton.new_with_range(-999,999,1); self.row(box,'Autoconnect priority','Higher saved connections are preferred.',self.network_priority)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Apply Connection Settings',self.apply_network_connection,True),False,False,0); row.pack_start(self.button('VPN / Advanced…',lambda *_:self.launch(['nm-connection-editor'])),False,False,0); box.pack_start(row,False,False,0)
+        self.section(box,'Wi-Fi hotspot')
+        self.hotspot_ssid=Gtk.Entry(); self.hotspot_ssid.set_text('CoffeeOS'); self.row(box,'Hotspot name','SSID broadcast from the Wi-Fi adapter.',self.hotspot_ssid)
+        self.hotspot_password=Gtk.Entry(); self.hotspot_password.set_visibility(False); self.hotspot_password.set_placeholder_text('At least 8 characters'); self.row(box,'Hotspot password','WPA password.',self.hotspot_password)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Start Hotspot',self.hotspot_start,True),False,False,0); row.pack_start(self.button('Stop Hotspot',self.hotspot_stop),False,False,0); row.pack_start(self.button('Refresh',lambda *_:self.refresh_network()),False,False,0); box.pack_start(row,False,False,0)
+        return box
+    def refresh_network(self):
+        rc,raw=capture(['coffee-network-settings','status'],8)
+        try:data=json.loads(raw) if rc==0 else {}
+        except ValueError:data={}
+        self.network_status.set_text(f"Connectivity: {data.get('connectivity','unknown')} · Wi-Fi device: {data.get('wifi_device') or 'none'}")
+        current=self.network_connection.get_active_id(); self.network_connection.remove_all()
+        for line in data.get('connections',[]):
+            m=re.search(r'([0-9A-Fa-f-]{36})',line)
+            if m:self.network_connection.append(m.group(1),line)
+        if current:self.network_connection.set_active_id(current)
+        elif self.network_connection.get_model() is not None:self.network_connection.set_active(0)
+    def apply_network_connection(self,*_):
+        uuid=self.network_connection.get_active_id()
+        if not uuid:self.set_status('Choose a saved connection first.');return
+        for cmd,val in (('set-dns',self.network_dns.get_text().strip()),('set-metered',self.network_metered.get_active_id() or 'unknown'),('set-priority',str(self.network_priority.get_value_as_int()))):
+            rc,out=capture(['coffee-network-settings',cmd,uuid,val],10)
+            if rc:self.set_status(out or 'Network setting failed.');return
+        self.set_status('Network connection settings saved.')
+    def hotspot_start(self,*_):
+        ssid=self.hotspot_ssid.get_text().strip();password=self.hotspot_password.get_text()
+        self.action('Start Wi-Fi hotspot',['coffee-network-settings','hotspot-on',ssid,password],lambda _rc:self.refresh_network())
+    def hotspot_stop(self,*_):self.action('Stop Wi-Fi hotspot',['coffee-network-settings','hotspot-off'],lambda _rc:self.refresh_network())
+
+    # Accessibility
+    def accessibility_page(self):
+        box=self.page_box(); box.pack_start(self.label('Accessibility','title'),False,False,0)
+        self.access_high=Gtk.Switch(); self.row(box,'High contrast','Use GTK high-contrast widgets.',self.access_high)
+        self.access_large=Gtk.Switch(); self.row(box,'Large text','Increase GTK application text size.',self.access_large)
+        self.access_motion=Gtk.Switch(); self.row(box,'Reduce motion','Disable most GTK desktop animations.',self.access_motion)
+        self.access_reader=Gtk.Switch(); self.row(box,'Screen reader','Start Orca with speech support.',self.access_reader)
+        self.access_cursor=Gtk.SpinButton.new_with_range(16,96,4); self.row(box,'Cursor size','Pointer size in pixels.',self.access_cursor)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Apply Accessibility',self.apply_accessibility,True),False,False,0); row.pack_start(self.button('Display Magnification…',lambda *_:self.stack.set_visible_child_name('display')),False,False,0); box.pack_start(row,False,False,0)
+        box.pack_start(self.label('Display scaling is used for whole-screen magnification. Keyboard repeat and input behavior are under Input & Region.','muted'),False,False,0)
+        return box
+    def refresh_accessibility(self):
+        rc,raw=capture(['coffee-accessibility','show'],4)
+        try:d=json.loads(raw) if rc==0 else {}
+        except ValueError:d={}
+        self.access_high.set_active(bool(d.get('high_contrast')));self.access_large.set_active(bool(d.get('large_text')));self.access_motion.set_active(bool(d.get('reduce_motion')));self.access_reader.set_active(bool(d.get('screen_reader')));self.access_cursor.set_value(int(d.get('cursor_size',24)))
+    def apply_accessibility(self,*_):
+        argv=['coffee-accessibility','set','--high-contrast','on' if self.access_high.get_active() else 'off','--large-text','on' if self.access_large.get_active() else 'off','--reduce-motion','on' if self.access_motion.get_active() else 'off','--screen-reader','on' if self.access_reader.get_active() else 'off','--cursor-size',str(self.access_cursor.get_value_as_int())]
+        self.action('Apply accessibility settings',argv,lambda _rc:self.refresh_accessibility())
+
+    # Hardware, drivers and firmware
+    def hardware_page(self):
+        box=self.page_box(); box.pack_start(self.label('Hardware & Firmware','title'),False,False,0)
+        self.hardware_status=self.label(''); box.pack_start(self.hardware_status,False,False,0)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Refresh Hardware',lambda *_:self.refresh_hardware()),False,False,0); row.pack_start(self.button('Detailed Graphics Diagnostics',self.graphics_diagnostics),False,False,0); box.pack_start(row,False,False,0)
+        self.section(box,'Firmware')
+        self.firmware_status=self.label('fwupd can check supported BIOS/UEFI, SSD, dock and device firmware.'); box.pack_start(self.firmware_status,False,False,0)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Refresh Firmware Metadata',self.firmware_refresh),False,False,0); row.pack_start(self.button('Install Firmware Updates',self.firmware_update,True),False,False,0); box.pack_start(row,False,False,0)
+        return box
+    def refresh_hardware(self):
+        rc,raw=capture(['coffee-hardware-health'],8)
+        try:d=json.loads(raw) if rc==0 else {}
+        except ValueError:d={}
+        lines=[]
+        for t in d.get('temperatures',[])[:8]:lines.append(f"{t.get('zone')}: {t.get('celsius')} °C")
+        for b in d.get('batteries',[]):lines.append(f"{b.get('name')}: {b.get('capacity','?')}% · health {b.get('health_percent') if b.get('health_percent') is not None else '?'}%")
+        if d.get('swap'):lines.append('Swap/zram: '+d['swap'].splitlines()[0])
+        if d.get('failed_units'):lines.append('Failed services:\n'+d['failed_units'])
+        self.hardware_status.set_text('\n'.join(lines) if lines else 'No additional hardware health sensors reported.')
+        rc,raw=capture(['coffee-driver-info'],12)
+        try:g=json.loads(raw) if rc==0 else {}
+        except ValueError:g={}
+        gpu_lines=[f"{x.get('device')}\n  driver: {x.get('driver') or 'unknown'}" for x in g.get('gpus',[])]
+        if g.get('hybrid'):gpu_lines.append('Hybrid/multi-GPU system detected.')
+        self.driver_status.set_text('\n'.join(gpu_lines) if gpu_lines else gpu_text())
+    def graphics_diagnostics(self,*_):self.action('Graphics diagnostics',['coffee-driver-info'])
+    def firmware_refresh(self,*_):self.action('Refresh firmware metadata',['pkexec','/usr/local/sbin/coffee-platform-admin','firmware','refresh'],lambda _rc:self.refresh_hardware())
+    def firmware_update(self,*_):
+        if self.confirm('Install firmware updates?','fwupd will install available vendor-signed LVFS firmware. Some devices may require a reboot.'):self.action('Install firmware updates',['pkexec','/usr/local/sbin/coffee-platform-admin','firmware','update'],lambda _rc:self.refresh_hardware())
+
+    # Recovery center
+    def recovery_page(self):
+        box=self.page_box(); box.pack_start(self.label('Recovery Center','title'),False,False,0)
+        self.recovery_center_status=self.label(''); box.pack_start(self.recovery_center_status,False,False,0)
+        self.section(box,'Btrfs snapshots')
+        self.snapshot_list=Gtk.ComboBoxText(); self.row(box,'Snapshots','Available CoffeeOS read-only snapshots.',self.snapshot_list)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Create Snapshot',self.snapshot_create,True),False,False,0); row.pack_start(self.button('Delete Selected',self.snapshot_delete),False,False,0); box.pack_start(row,False,False,0)
+        self.section(box,'Boot and repair')
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Debian Fallback Next Boot',self.recovery_next,True),False,False,0); row.pack_start(self.button('Rollback Packages',self.rollback_update),False,False,0); row.pack_start(self.button('Check Filesystem Next Boot',self.fsck_next),False,False,0); box.pack_start(row,False,False,0)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Rebuild Initramfs',lambda *_:self.repair_system('initramfs')),False,False,0); row.pack_start(self.button('Rebuild GRUB',lambda *_:self.repair_system('grub')),False,False,0); row.pack_start(self.button('Repair UEFI GRUB',lambda *_:self.repair_system('uefi')),False,False,0); box.pack_start(row,False,False,0)
+        box.pack_start(self.label('The GRUB menu also includes CoffeeOS (Safe Graphics), using conservative rendering settings and preferring the Debian fallback kernel.','muted'),False,False,0)
+        self.section(box,'Secure Boot')
+        self.secureboot_status=self.label(''); box.pack_start(self.secureboot_status,False,False,0)
+        row=Gtk.Box(spacing=8); row.pack_start(self.button('Create Local MOK',self.secureboot_setup),False,False,0); row.pack_start(self.button('Enroll MOK…',self.secureboot_enroll),False,False,0); row.pack_start(self.button('Sign CoffeeKernel Now',self.secureboot_sign),False,False,0); box.pack_start(row,False,False,0)
+        box.pack_start(self.label('The development live ISO itself is not Secure-Boot signed. These controls prepare an installed CoffeeKernel for a locally enrolled Machine Owner Key.','muted'),False,False,0)
+        return box
+    def refresh_recovery(self):
+        rc,raw=capture(['/usr/local/sbin/coffee-recovery','status'],5)
+        try:d=json.loads(raw) if rc==0 else {}
+        except ValueError:d={}
+        self.recovery_center_status.set_text(f"Root filesystem: {d.get('root_fstype','unknown')} · snapshots: {d.get('snapshots',0)}"+(' · recovery recommended' if d.get('recovery_recommended') else ''))
+        rc,out=capture(['/usr/local/sbin/coffee-recovery','snapshot-list'],5); current=self.snapshot_list.get_active_id();self.snapshot_list.remove_all()
+        if rc==0:
+            for name in out.splitlines():
+                if name:self.snapshot_list.append(name,name)
+        if current:self.snapshot_list.set_active_id(current)
+        elif self.snapshot_list.get_model() is not None:self.snapshot_list.set_active(0)
+        rc,out=capture(['/usr/local/sbin/coffee-secure-boot','status'],5);self.secureboot_status.set_text(out if rc==0 else 'Secure Boot status unavailable: '+out)
+    def snapshot_create(self,*_):self.action('Create Btrfs snapshot',['pkexec','/usr/local/sbin/coffee-recovery','snapshot-create','manual'],lambda _rc:self.refresh_recovery())
+    def snapshot_delete(self,*_):
+        name=self.snapshot_list.get_active_id()
+        if name and self.confirm('Delete snapshot?',name):self.action('Delete Btrfs snapshot',['pkexec','/usr/local/sbin/coffee-recovery','snapshot-delete',name],lambda _rc:self.refresh_recovery())
+    def fsck_next(self,*_):self.action('Schedule filesystem check',['pkexec','/usr/local/sbin/coffee-recovery','fsck-next'])
+    def repair_system(self,kind):
+        if self.confirm('Run recovery repair?',f'Run CoffeeOS {kind} repair now?'):self.action('Recovery repair',['pkexec','/usr/local/sbin/coffee-recovery','repair',kind],lambda _rc:self.refresh_recovery())
+    def secureboot_setup(self,*_):self.action('Create CoffeeOS MOK',['pkexec','/usr/local/sbin/coffee-secure-boot','setup'],lambda _rc:self.refresh_recovery())
+    def secureboot_enroll(self,*_):self.launch(['foot','-e','pkexec','/usr/local/sbin/coffee-secure-boot','enroll'])
+    def secureboot_sign(self,*_):self.action('Sign CoffeeKernel',['pkexec','/usr/local/sbin/coffee-secure-boot','sign'],lambda _rc:self.refresh_recovery())
 
 
     # Performance
@@ -881,9 +1036,12 @@ class CoffeeControlCenter(Gtk.Window):
             installed=heroic_installed() if key=='heroic' else package_installed(pkg)
             b=self.software_buttons[key]; b.set_label('Installed' if installed else ('Install after CoffeeOS setup' if live else 'Install'))
             b.set_sensitive(not installed and not live)
-        gpu=gpu_text(); nvidia='NVIDIA' in gpu.upper()
-        driver_installed=shutil.which('nvidia-smi') is not None
-        self.driver_status.set_text(('NVIDIA proprietary driver installed.' if driver_installed else 'Graphics hardware:\n'+gpu))
+        rc,raw=capture(['coffee-driver-info'],12)
+        try: info=json.loads(raw) if rc==0 else {}
+        except ValueError: info={}
+        gpu='\n'.join(f"{x.get('device')}\n  driver: {x.get('driver') or 'unknown'}" for x in info.get('gpus',[])) or gpu_text()
+        nvidia='NVIDIA' in gpu.upper(); driver_installed=bool(info.get('nvidia_tools'))
+        self.driver_status.set_text(('NVIDIA proprietary driver installed.\n' if driver_installed else '')+gpu)
         self.nvidia_button.set_sensitive(nvidia and not driver_installed and not live)
 
     def install_optional(self, key):
@@ -905,6 +1063,7 @@ class CoffeeControlCenter(Gtk.Window):
         box.pack_start(self.label('Update the installed system in place. Debian security/base packages use Debian Stable; CoffeeOS releases can come from a signed CoffeeOS APT feed.', 'muted'),False,False,0)
         self.update_status=self.label(''); box.pack_start(self.update_status,False,False,0)
         self.update_feed=self.label(''); box.pack_start(self.update_feed,False,False,0)
+        self.update_safety=self.label(''); box.pack_start(self.update_safety,False,False,0)
         buttons=Gtk.Box(spacing=8)
         self.update_check=self.button('Check Now',self.check_updates)
         self.update_install=self.button('Install Updates',self.install_updates,True)
@@ -918,7 +1077,10 @@ class CoffeeControlCenter(Gtk.Window):
         box.pack_start(buttons,False,False,0)
         box.pack_start(self.label('Stable is recommended for normal use. Beta and Dev receive newer CoffeeOS packages when those suites exist on your signed update feed.','muted'),False,False,0)
         self.update_list=Gtk.TextView(editable=False,cursor_visible=False,monospace=True); self.update_list.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        scroll=Gtk.ScrolledWindow(); scroll.set_min_content_height(240); scroll.add(self.update_list); box.pack_start(scroll,True,True,0)
+        scroll=Gtk.ScrolledWindow(); scroll.set_min_content_height(180); scroll.add(self.update_list); box.pack_start(scroll,True,True,0)
+        self.section(box,'CoffeeOS changelog')
+        self.update_changelog=Gtk.TextView(editable=False,cursor_visible=False); self.update_changelog.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        chscroll=Gtk.ScrolledWindow(); chscroll.set_min_content_height(130); chscroll.add(self.update_changelog); box.pack_start(chscroll,True,True,0)
         return box
 
     def refresh_updates(self):
@@ -939,6 +1101,12 @@ class CoffeeControlCenter(Gtk.Window):
         feed=info.get('feed_url','')
         self.update_channel.set_active_id(info.get('feed_suite','stable'))
         self.update_feed.set_text('CoffeeOS feed: '+(feed if feed else 'not configured — Debian Stable updates still work'))
+        rc,raw=capture(['/usr/local/sbin/coffee-update','plan','--json'],10)
+        try: plan=json.loads(raw) if rc==0 else {}
+        except ValueError: plan={}
+        risk=plan.get('risk','unknown').upper(); reasons=', '.join(plan.get('reasons',[])[:8])
+        self.update_safety.set_text('Update safety: '+risk+((' · sensitive: '+reasons) if reasons else ''))
+        rc,ch=capture(['/usr/local/sbin/coffee-update','changelog'],5); self.update_changelog.get_buffer().set_text(ch if rc==0 else 'Changelog unavailable.')
 
     def set_update_channel(self,*_):
         channel=self.update_channel.get_active_id() or 'stable'
@@ -949,7 +1117,8 @@ class CoffeeControlCenter(Gtk.Window):
         self.action('Check for updates',['pkexec','/usr/local/sbin/coffee-update','check'],lambda _rc:self.refresh_updates())
 
     def install_updates(self,*_):
-        if self.confirm('Install system updates?', 'Apply available Debian Stable and configured CoffeeOS updates in place? A CoffeeKernel update may require a reboot afterward.'):
+        risk=self.update_safety.get_text()
+        if self.confirm('Install system updates?', 'Apply available Debian Stable and configured CoffeeOS updates in place? '+risk+' High-risk updates attempt a Btrfs snapshot first and always preserve CoffeeOS package rollback copies.'):
             self.action('Install updates',['pkexec','/usr/local/sbin/coffee-update','upgrade'],lambda _rc:self.refresh_updates())
 
     def cleanup_updates(self,*_):
@@ -986,7 +1155,7 @@ class CoffeeControlCenter(Gtk.Window):
 
 def main():
     parser=argparse.ArgumentParser(description='CoffeeOS system settings')
-    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','power','input','security','apps','system','performance','gaming','appearance','software','updates'))
+    parser.add_argument('--page', choices=('overview','display','bluetooth','audio','network','power','input','accessibility','security','apps','system','hardware','recovery','performance','gaming','appearance','software','updates'))
     args=parser.parse_args()
     apply_theme_style()
     win=CoffeeControlCenter()

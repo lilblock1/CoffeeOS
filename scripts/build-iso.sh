@@ -39,6 +39,24 @@ commit="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf '{"commit":"%s","built_at":"%s","version":"0.10.0-dev"}\n' "$commit" "$built_at" > "$RECIPE/config/includes.chroot/usr/share/coffeeos/build-info.json"
 
+baseline_tag="$(git -C "$ROOT" for-each-ref --sort=-creatordate --format='%(refname:short)' refs/tags/coffeeos-stock-* refs/tags/coffeeos-coffeekernel-* 2>/dev/null | head -n1 || true)"
+if [[ -n "$baseline_tag" ]]; then
+  git -C "$ROOT" log --no-merges --pretty=format:%s "$baseline_tag..HEAD" | head -50 > "$OUT/coffeeos-changes.txt" || true
+else
+  git -C "$ROOT" log --no-merges -20 --pretty=format:%s HEAD > "$OUT/coffeeos-changes.txt" || true
+fi
+python3 - "$OUT/coffeeos-changes.txt" "$baseline_tag" "$built_at" "$RECIPE/config/includes.chroot/usr/share/coffeeos/changelog.json" <<'PYCHANGE'
+import json,sys
+src,baseline,built_at,dst=sys.argv[1:]
+try:
+    changes=[x.strip() for x in open(src,encoding='utf-8') if x.strip()]
+except OSError:
+    changes=[]
+with open(dst,'w',encoding='utf-8') as out:
+    json.dump({'baseline':baseline or None,'built_at':built_at,'changes':changes},out,indent=2)
+    out.write('\n')
+PYCHANGE
+
 # Always rebuild the updatable CoffeeOS system package from the current source.
 # This makes CoffeeOS-owned files part of dpkg state so future releases can
 # replace them through APT, and prevents a stale package from an earlier build.

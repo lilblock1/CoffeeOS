@@ -316,6 +316,8 @@ def apply(state, reload=True, reset_wallpaper=False):
             restart_wallpaper()
         if shutil.which('coffee-desktop-settings'):
             subprocess.run(('coffee-desktop-settings','notifications-apply'), check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        if shutil.which('coffee-accessibility'):
+            subprocess.run(('coffee-accessibility','apply'), check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
 
 
 def main():
