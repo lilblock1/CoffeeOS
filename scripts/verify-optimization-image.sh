@@ -56,6 +56,13 @@ if grep -Fq 'squashfs-root/usr/bin/lutris' "$listing"; then
   exit 11
 fi
 
+# xorriso prints -find results shell-quoted (for example
+# '/live/vmlinuz-6.12.113-coffee'). Normalize those presentation quotes before
+# using anchored filename checks so a valid CoffeeKernel is not rejected.
+normalize_xorriso_paths() {
+  sed -e "s/^'//" -e "s/'$//"
+}
+
 kernel_status=$(unsquashfs -cat "$squashfs" usr/share/coffeeos/kernel-build-status.txt 2>/dev/null || true)
 printf '%s\n' "$kernel_status"
 
@@ -65,7 +72,7 @@ if grep -q '^kernel=CoffeeKernel$' <<<"$kernel_status"; then
   }
   # The binary stage should have copied the custom kernel and the binary hook
   # should have selected it for CoffeeOS' live boot menu.
-  iso_live=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type file -- 2>/dev/null || true)
+  iso_live=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type file -- 2>/dev/null | normalize_xorriso_paths || true)
   grep -Eq '/live/vmlinuz-.*-coffee$' <<<"$iso_live" || {
     echo 'ERROR: CoffeeKernel not copied to ISO /live.' >&2; exit 8;
   }
@@ -91,7 +98,7 @@ elif [[ -z "$kernel_status" ]]; then
     echo 'ERROR: stock ISO unexpectedly contains CoffeeKernel in /boot.' >&2
     exit 10
   fi
-  iso_live=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type file -- 2>/dev/null || true)
+  iso_live=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type file -- 2>/dev/null | normalize_xorriso_paths || true)
   grep -q '/live/vmlinuz' <<<"$iso_live" || {
     echo 'ERROR: stock ISO has no live kernel.' >&2; exit 10;
   }
