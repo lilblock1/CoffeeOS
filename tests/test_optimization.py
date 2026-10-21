@@ -107,8 +107,12 @@ class TestOptimizationPipeline(unittest.TestCase):
     def test_coffeekernel_is_preferred_in_live_boot_without_removing_fallback(self):
         auto=(ROOT/'live-build/auto/config').read_text()
         self.assertIn('config/packages.chroot/linux-image-*-coffee_*.deb',auto)
-        self.assertIn('COFFEE_LINUX_FLAVOURS="$coffee_flavour amd64"',auto)
+        self.assertIn('COFFEE_LINUX_PACKAGES="linux-image-$coffee_version"',auto)
+        self.assertIn('COFFEE_LINUX_FLAVOURS=coffee',auto)
+        self.assertIn('--linux-packages "$COFFEE_LINUX_PACKAGES"',auto)
         self.assertIn('--linux-flavours "$COFFEE_LINUX_FLAVOURS"',auto)
+        foundation=(ROOT/'live-build/config/package-lists/00-foundation.list.chroot').read_text()
+        self.assertIn('linux-image-amd64',foundation)
 
         init_hook=(ROOT/'live-build/config/hooks/live/045-coffeekernel-initramfs.hook.chroot').read_text()
         self.assertIn('update-initramfs -c -k "$version"',init_hook)
