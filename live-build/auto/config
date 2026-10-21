@@ -4,9 +4,14 @@ set -eu
 MIRROR=${COFFEE_MIRROR:-http://deb.debian.org/debian/}
 SECURITY_MIRROR=${COFFEE_SECURITY_MIRROR:-http://security.debian.org/debian-security/}
 
-# Debian live-build chooses the first LB_LINUX_FLAVOURS item as the default
-# live kernel. When CoffeeKernel is staged as a local package, make its exact
-# package flavour the primary one and keep Debian amd64 as the fallback.
+# live-build constructs kernel package names as
+# "${LB_LINUX_PACKAGES}-${LB_LINUX_FLAVOURS}" and later finds the boot image
+# as "vmlinuz-*${LB_LINUX_FLAVOURS}". A versioned CoffeeKernel package such as
+# linux-image-6.12.113-coffee therefore needs package prefix
+# "linux-image-6.12.113" with flavour "coffee". Passing the whole
+# "6.12.113-coffee" string as the flavour makes live-build look for the
+# impossible path vmlinuz-*-6.12.113-coffee.
+COFFEE_LINUX_PACKAGES=linux-image
 COFFEE_LINUX_FLAVOURS=amd64
 set -- config/packages.chroot/linux-image-*-coffee_*.deb
 if [ -e "$1" ]; then
@@ -15,12 +20,19 @@ if [ -e "$1" ]; then
     exit 1
   }
   coffee_pkg=$(dpkg-deb -f "$1" Package)
-  coffee_flavour=${coffee_pkg#linux-image-}
-  case "$coffee_flavour" in
+  coffee_kernel=${coffee_pkg#linux-image-}
+  case "$coffee_kernel" in
     *-coffee) ;;
-    *) echo "CoffeeOS: invalid CoffeeKernel package flavour: $coffee_flavour" >&2; exit 1 ;;
+    *) echo "CoffeeOS: invalid CoffeeKernel package name: $coffee_pkg" >&2; exit 1 ;;
   esac
-  COFFEE_LINUX_FLAVOURS="$coffee_flavour amd64"
+  coffee_version=${coffee_kernel%-coffee}
+  [ -n "$coffee_version" ] || {
+    echo "CoffeeOS: could not derive CoffeeKernel version from: $coffee_pkg" >&2
+    exit 1
+  }
+  COFFEE_LINUX_PACKAGES="linux-image-$coffee_version"
+  COFFEE_LINUX_FLAVOURS=coffee
+  echo "CoffeeOS: live kernel package prefix: $COFFEE_LINUX_PACKAGES"
   echo "CoffeeOS: live kernel flavours: $COFFEE_LINUX_FLAVOURS"
 fi
 lb config noauto \
@@ -31,7 +43,7 @@ lb config noauto \
   --binary-image iso-hybrid \
   --bootloaders 'syslinux grub-efi' \
   --uefi-secure-boot disable \
-  --linux-packages linux-image \
+  --linux-packages "$COFFEE_LINUX_PACKAGES" \
   --linux-flavours "$COFFEE_LINUX_FLAVOURS" \
   --archive-areas 'main contrib non-free non-free-firmware' \
   --parent-archive-areas 'main contrib non-free non-free-firmware' \
