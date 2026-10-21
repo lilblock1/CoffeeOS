@@ -1,11 +1,11 @@
 {
   "layer": "top",
   "position": "top",
-  "height": 40,
-  "spacing": 6,
-  "margin-top": 6,
-  "margin-left": 9,
-  "margin-right": 9,
+  "height": 34,
+  "spacing": 2,
+  "margin-top": 4,
+  "margin-left": 8,
+  "margin-right": 8,
   "modules-left": [
     "custom/coffee",
     "wlr/taskbar"
@@ -32,26 +32,26 @@
   },
   "wlr/taskbar": {
     "format": "{icon}",
-    "icon-size": 18,
+    "icon-size": 16,
     "tooltip-format": "{title}",
     "on-click": "activate",
     "on-click-middle": "close"
   },
   "clock": {
-    "format": "{:%A  •  %b %d   %H:%M}",
+    "format": "{:%a  •  %b %d  %H:%M}",
     "tooltip-format": "{:%A, %B %d, %Y}"
   },
   "cpu": {
-    "format": " {usage}%",
+    "format": "CPU {usage}%",
     "interval": 10,
     "tooltip": true
   },
   "memory": {
-    "format": "RAM {}%",
+    "format": "RAM {percentage}%",
     "interval": 10
   },
   "network": {
-    "format-wifi": "Wi-Fi  {signalStrength}%",
+    "format-wifi": "Wi-Fi {signalStrength}%",
     "format-ethernet": "Ethernet",
     "format-disconnected": "Offline",
     "tooltip": true,
@@ -59,16 +59,16 @@
     "on-click-right": "nm-connection-editor"
   },
   "pulseaudio": {
-    "format": "Vol  {volume}%",
-    "format-muted": "Muted",
+    "format": "VOL {volume}%",
+    "format-muted": "VOL Muted",
     "on-click": "coffee-control-center --page audio",
     "on-click-right": "pavucontrol",
     "scroll-step": 5
   },
   "battery": {
-    "format": "BAT  {capacity}%",
-    "format-charging": "Charging  {capacity}%",
-    "format-full": "",
+    "format": "BAT {capacity}%",
+    "format-charging": "BAT {capacity}% +",
+    "format-full": "BAT {capacity}%",
     "format-not-present": "",
     "interval": 30,
     "on-click": "coffee-control-center --page power"

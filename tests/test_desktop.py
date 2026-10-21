@@ -99,6 +99,20 @@ class TestDesktopConfig(unittest.TestCase):
             self.assertIn(pkg,packages)
 
 
+    def test_waybar_is_compact_and_font_safe(self):
+        bar=json.loads((CHROOT/'etc/xdg/waybar/config.jsonc').read_text())
+        self.assertLessEqual(bar['height'],36)
+        self.assertEqual(bar['cpu']['format'],'CPU {usage}%')
+        self.assertNotIn('\uf2db',bar['cpu']['format'])
+        self.assertEqual(bar['pulseaudio']['format'],'VOL {volume}%')
+        style=(CHROOT/'etc/xdg/waybar/style.css').read_text()
+        self.assertIn('window#waybar {',style)
+        self.assertIn('background: transparent',style)
+        self.assertIn('window#waybar > box',style)
+        appearance=(BIN/'coffee-appearance').read_text()
+        self.assertIn('window#waybar > box',appearance)
+        self.assertIn('background: transparent',appearance)
+
     def test_vm_and_safe_graphics_software_fallback(self):
         session=(BIN/'coffee-session').read_text()
         self.assertIn('WLR_RENDERER_ALLOW_SOFTWARE=1',session)
