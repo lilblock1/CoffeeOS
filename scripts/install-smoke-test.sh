@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
-ISO="\${1:-$ROOT/dist/coffeeos-0.10.0-dev-amd64.iso}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ISO="${1:-$ROOT/dist/coffeeos-0.10.0-dev-amd64.iso}"
 [[ -s "$ISO" ]] || { echo "Missing ISO: $ISO" >&2; exit 2; }
 for exe in qemu-system-x86_64 qemu-img xorriso; do command -v "$exe" >/dev/null || { echo "Missing $exe" >&2; exit 3; }; done
 work=$(mktemp -d)
