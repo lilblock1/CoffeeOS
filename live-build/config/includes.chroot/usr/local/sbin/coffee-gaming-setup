@@ -61,22 +61,30 @@ enable_i386() {
 }
 install_stable() { run apt-get install -y --no-install-recommends "$@"; }
 ensure_backports() {
-  local file=/etc/apt/sources.list.d/coffeeos-trixie-backports.sources
+  # CoffeeOS ships this source in the base image. Reuse the same path instead
+  # of creating a second equivalent trixie-backports source on installed
+  # systems. If an older/minimal install lacks it, recreate it safely.
+  local file=/etc/apt/sources.list.d/coffeeos-backports.sources
   if [[ ! -e $file ]]; then
     if (( DRY_RUN )); then
       echo "+ write $file (official Debian trixie-backports, signed by Debian archive keyring)"
     else
-      cat > "$file" <<'SRC'
+      local keyring=
+      for candidate in /usr/share/keyrings/debian-archive-keyring.pgp /usr/share/keyrings/debian-archive-keyring.gpg; do
+        [[ -r $candidate ]] && { keyring=$candidate; break; }
+      done
+      [[ -n $keyring ]] || { echo 'Debian archive keyring not found.' >&2; exit 3; }
+      cat > "$file" <<SRC
 Types: deb
 URIs: https://deb.debian.org/debian
 Suites: trixie-backports
 Components: main contrib non-free non-free-firmware
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+Signed-By: $keyring
 SRC
       chmod 0644 "$file"
     fi
-    apt_update
   fi
+  apt_update
 }
 install_steam() {
   enable_i386
