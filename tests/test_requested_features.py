@@ -84,8 +84,8 @@ menuentry 'CoffeeOS, with Linux 6.12.57-amd64' {}
         hook=ROOT/'live-build/config/hooks/live/050-coffeeos-plymouth.hook.chroot'
         grub=INC/'etc/default/grub.d/50-coffeeos-plymouth.cfg'
         self.assertIn('ModuleName=script',theme.read_text())
-        self.assertIn('CoffeeOS',script.read_text())
-        self.assertIn('Brewing your session',script.read_text())
+        self.assertIn('Plymouth.SetBootProgressFunction(progress_callback)',script.read_text())
+        self.assertIn('Brewing your session',(theme.parent/'coffeeos-background.svg').read_text())
         self.assertIn('plymouth-set-default-theme coffeeos',hook.read_text())
         self.assertIn('quiet',grub.read_text())
         self.assertIn('splash',grub.read_text())
