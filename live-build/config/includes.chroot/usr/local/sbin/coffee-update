@@ -19,6 +19,10 @@ RELEASE=Path('/usr/share/coffeeos/release')
 ROLLBACK=Path('/var/lib/coffeeos/rollback')
 CHANNELS={'stable','beta','dev'}
 CHANGELOG=Path('/usr/share/coffeeos/changelog.json')
+OFFICIAL_GITHUB_REPO='lilblock1/CoffeeOS'
+OFFICIAL_GITHUB_FEED='https://lilblock1.github.io/CoffeeOS'
+OFFICIAL_GITHUB_KEY=OFFICIAL_GITHUB_FEED+'/coffeeos-update-key.gpg'
+DEFAULT_GITHUB_CHANNEL='dev'
 
 
 def run(argv, *, check=False, capture=False, env=None):
@@ -55,7 +59,22 @@ def current_version():
 
 def feed_info():
     c=parse_shell_kv(CONF)
-    return c.get('COFFEEOS_FEED_URL',''), c.get('COFFEEOS_FEED_SUITE','stable') or 'stable'
+    return c.get('COFFEEOS_FEED_URL',''), c.get('COFFEEOS_FEED_SUITE',DEFAULT_GITHUB_CHANNEL) or DEFAULT_GITHUB_CHANNEL
+
+def github_auto_enabled():
+    c=parse_shell_kv(CONF)
+    return c.get('COFFEEOS_GITHUB_AUTO','1').strip().lower() not in ('0','false','no','off')
+
+def write_config(url, suite, *, github_auto=False, fingerprint=''):
+    CONF.parent.mkdir(parents=True,exist_ok=True)
+    lines=[
+      'COFFEEOS_FEED_URL='+url,
+      'COFFEEOS_FEED_SUITE='+suite,
+      'COFFEEOS_GITHUB_AUTO='+('1' if github_auto else '0'),
+      'COFFEEOS_GITHUB_REPO='+OFFICIAL_GITHUB_REPO,
+    ]
+    if fingerprint: lines.append('COFFEEOS_GITHUB_KEY_FINGERPRINT='+fingerprint)
+    CONF.write_text('\n'.join(lines)+'\n')
 
 def upgradable():
     p=run(['apt','list','--upgradable'],capture=True)
@@ -145,6 +164,9 @@ def status(as_json=False):
     result={
       'version':current_version(), 'feed_url':url, 'feed_suite':suite,
       'feed_configured':bool(url and SOURCE.exists() and KEYRING.exists()),
+      'feed_source':'github' if url==OFFICIAL_GITHUB_FEED else ('custom' if url else 'none'),
+      'github_repo':OFFICIAL_GITHUB_REPO,
+      'github_auto':github_auto_enabled(),
       'last_check':data.get('checked_at','never'),
       'upgrade_count':data.get('upgrade_count',0),
       'coffeeos_upgrade_count':data.get('coffeeos_upgrade_count',0),
@@ -153,21 +175,51 @@ def status(as_json=False):
     }
     if as_json: print(json.dumps(result,sort_keys=True)); return
     print(f"CoffeeOS version: {result['version']}")
-    print(f"CoffeeOS feed: {url or 'not configured (Debian updates only)'}")
+    source='GitHub ('+OFFICIAL_GITHUB_REPO+')' if result['feed_source']=='github' else (url or 'not configured (Debian updates only)')
+    print(f"CoffeeOS feed: {source}")
     print(f"Channel: {suite}")
     print(f"Last check: {result['last_check']}")
     print(f"Cached upgrades: {result['upgrade_count']} ({result['coffeeos_upgrade_count']} CoffeeOS)")
     print(f"Reboot required: {'yes' if result['reboot_required'] else 'no'}")
     if result['last_error']: print(f"Last error: {result['last_error']}")
 
+def ensure_github_feed(*, strict=False):
+    """Bootstrap the official signed GitHub Pages APT feed when enabled."""
+    if not github_auto_enabled(): return ''
+    url,suite=feed_info()
+    if url and url != OFFICIAL_GITHUB_FEED: return ''
+    suite=suite if suite in CHANNELS else DEFAULT_GITHUB_CHANNEL
+    if url==OFFICIAL_GITHUB_FEED and SOURCE.exists() and KEYRING.exists(): return ''
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            key=Path(td)/'coffeeos-update-key.gpg'
+            p=run(['curl','--fail','--location','--silent','--show-error','--proto','=https','--tlsv1.2','--max-time','30','--output',str(key),OFFICIAL_GITHUB_KEY],capture=True)
+            if p.returncode: raise RuntimeError('GitHub signing key download failed: '+p.stdout.strip())
+            configure_feed(OFFICIAL_GITHUB_FEED,suite,str(key),github_auto=True,quiet=True)
+        return ''
+    except (OSError,RuntimeError,subprocess.CalledProcessError,SystemExit) as exc:
+        message='CoffeeOS GitHub feed bootstrap failed: '+str(exc)
+        if strict: raise SystemExit(message)
+        return message
+
+def use_github(channel=DEFAULT_GITHUB_CHANNEL):
+    root_required(); installed_only()
+    if channel not in CHANNELS: raise SystemExit('Channel must be stable, beta or dev.')
+    write_config(OFFICIAL_GITHUB_FEED,channel,github_auto=True)
+    warning=ensure_github_feed(strict=True)
+    if warning: raise SystemExit(warning)
+    print(f'CoffeeOS GitHub updates enabled: {OFFICIAL_GITHUB_REPO} ({channel})')
+
 def do_check(background=False):
     root_required(); installed_only()
+    github_warning=ensure_github_feed(strict=False)
     p=run(['apt-get','update'])
     if p.returncode:
         write_state([],error=f'apt-get update failed with exit code {p.returncode}')
         raise SystemExit(p.returncode)
-    lines=upgradable(); data=write_state(lines)
+    lines=upgradable(); data=write_state(lines,error=github_warning)
     if not background:
+        if github_warning: print('Warning: '+github_warning)
         print(f"Available upgrades: {len(lines)} ({data['coffeeos_upgrade_count']} CoffeeOS)")
         for line in lines: print(line)
 
@@ -216,12 +268,14 @@ def set_channel(channel):
     url,_=feed_info()
     if not url or not KEYRING.exists(): raise SystemExit('Configure a signed CoffeeOS update feed first.')
     SOURCE.write_text(f'''Types: deb\nURIs: {url}\nSuites: {channel}\nComponents: main\nSigned-By: {KEYRING}\n''')
-    CONF.parent.mkdir(parents=True,exist_ok=True)
-    CONF.write_text(f'COFFEEOS_FEED_URL={url}\nCOFFEEOS_FEED_SUITE={channel}\n')
+    previous=parse_shell_kv(CONF)
+    write_config(url,channel,github_auto=(url==OFFICIAL_GITHUB_FEED and github_auto_enabled()),fingerprint=previous.get('COFFEEOS_GITHUB_KEY_FINGERPRINT',''))
     print('CoffeeOS update channel set to '+channel+'.')
 
 def do_upgrade():
     root_required(); installed_only()
+    github_warning=ensure_github_feed(strict=False)
+    if github_warning: print('Warning: '+github_warning)
     env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
     run(['apt-get','update'],check=True,env=env)
     lines_before=upgradable()
@@ -258,7 +312,7 @@ def normalize_url(value):
     if p.scheme=='file' and not p.path.startswith('/'): raise SystemExit('file:// feed must use an absolute path.')
     return value.rstrip('/')
 
-def configure_feed(url,suite,keyfile):
+def configure_feed(url,suite,keyfile, *, github_auto=False, quiet=False):
     root_required(); installed_only(); url=normalize_url(url)
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*',suite): raise SystemExit('Invalid feed suite/channel name.')
     key=Path(keyfile)
@@ -277,18 +331,24 @@ def configure_feed(url,suite,keyfile):
             run(['gpg','--batch','--no-options','--homedir',str(home),'--yes','--dearmor','--output',str(out),str(key)],check=True)
         else: shutil.copyfile(key,out)
         os.chmod(out,0o644); shutil.copyfile(out,KEYRING); os.chmod(KEYRING,0o644)
+        shown=run(['gpg','--batch','--no-options','--homedir',str(home),'--with-colons','--show-keys',str(key)],capture=True)
+        fingerprint=''
+        if shown.returncode==0:
+            for line in shown.stdout.splitlines():
+                fields=line.split(':')
+                if fields and fields[0]=='fpr' and len(fields)>9:
+                    fingerprint=fields[9]; break
     SOURCE.write_text(f'''Types: deb\nURIs: {url}\nSuites: {suite}\nComponents: main\nSigned-By: {KEYRING}\n''')
-    CONF.parent.mkdir(parents=True,exist_ok=True)
-    CONF.write_text(f'COFFEEOS_FEED_URL={url}\nCOFFEEOS_FEED_SUITE={suite}\n')
-    print(f'CoffeeOS update feed configured: {url} ({suite})')
-    print('Run: sudo coffee-update check')
+    write_config(url,suite,github_auto=github_auto,fingerprint=fingerprint)
+    if not quiet:
+        print(f'CoffeeOS update feed configured: {url} ({suite})')
+        print('Run: sudo coffee-update check')
 
 def clear_feed():
     root_required(); installed_only()
     SOURCE.unlink(missing_ok=True); KEYRING.unlink(missing_ok=True)
-    CONF.parent.mkdir(parents=True,exist_ok=True)
-    CONF.write_text('COFFEEOS_FEED_URL=\nCOFFEEOS_FEED_SUITE=stable\n')
-    print('CoffeeOS-specific feed removed. Debian Stable updates remain enabled.')
+    write_config('',DEFAULT_GITHUB_CHANNEL,github_auto=False)
+    print('CoffeeOS-specific feed removed and automatic GitHub updates disabled. Debian Stable updates remain enabled.')
 
 def main():
     ap=argparse.ArgumentParser(prog='coffee-update')
@@ -300,6 +360,7 @@ def main():
     sub.add_parser('changelog')
     sub.add_parser('upgrade'); sub.add_parser('cleanup'); sub.add_parser('rollback-list'); sub.add_parser('rollback-latest'); p=sub.add_parser('set-channel'); p.add_argument('channel',choices=sorted(CHANNELS))
     p=sub.add_parser('set-feed'); p.add_argument('url'); p.add_argument('suite'); p.add_argument('public_key')
+    p=sub.add_parser('use-github'); p.add_argument('channel',nargs='?',default=DEFAULT_GITHUB_CHANNEL,choices=sorted(CHANNELS))
     sub.add_parser('clear-feed')
     a=ap.parse_args()
     if a.cmd=='status': status(a.json)
@@ -312,6 +373,7 @@ def main():
     elif a.cmd=='rollback-list': rollback_list()
     elif a.cmd=='rollback-latest': do_rollback()
     elif a.cmd=='set-channel': set_channel(a.channel)
-    elif a.cmd=='set-feed': configure_feed(a.url,a.suite,a.public_key)
+    elif a.cmd=='set-feed': configure_feed(a.url,a.suite,a.public_key,github_auto=False)
+    elif a.cmd=='use-github': use_github(a.channel)
     elif a.cmd=='clear-feed': clear_feed()
 if __name__=='__main__': main()
