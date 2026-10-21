@@ -65,6 +65,7 @@ for p in \
   usr/share/icons/hicolor/scalable/apps/coffeeos.svg \
   usr/share/wayland-sessions/coffee.desktop usr/share/wayland-sessions/coffee-gaming.desktop usr/share/coffeeos \
   etc/coffeeos \
+  etc/default/grub.d/60-coffeeos-recovery.cfg \
   etc/systemd/journald.conf.d/60-coffeeos.conf \
   usr/lib/sysctl.d/60-coffeeos.conf \
   usr/lib/systemd/system/coffee-storage-tune.service \

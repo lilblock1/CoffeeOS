@@ -6,6 +6,7 @@ set -eu
 runtime_dir=/run/coffeeos
 runtime_cfg="$runtime_dir/greetd.toml"
 base_cfg=/etc/greetd/config.toml
+autologin_cfg=/etc/coffeeos/autologin.conf
 mkdir -p "$runtime_dir"
 
 is_live=0
@@ -40,7 +41,28 @@ command = "/usr/local/bin/coffee-greeter"
 user = "_greetd"
 CONFIG
 else
-    cp "$base_cfg" "$runtime_cfg"
+    enabled=false
+    login_user=
+    if [ -r "$autologin_cfg" ]; then
+        enabled=$(sed -n 's/^ENABLED=//p' "$autologin_cfg" | head -n1)
+        login_user=$(sed -n 's/^USER=//p' "$autologin_cfg" | head -n1)
+    fi
+    if [ "$enabled" = true ] && [ -n "$login_user" ] && [ "$login_user" != root ] && id "$login_user" >/dev/null 2>&1; then
+        cat > "$runtime_cfg" <<CONFIG
+[terminal]
+vt = 7
+
+[initial_session]
+command = "/usr/local/bin/coffee-session"
+user = "$login_user"
+
+[default_session]
+command = "/usr/local/bin/coffee-greeter"
+user = "_greetd"
+CONFIG
+    else
+        cp "$base_cfg" "$runtime_cfg"
+    fi
 fi
 
 chmod 0644 "$runtime_cfg"

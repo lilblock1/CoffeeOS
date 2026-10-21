@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Create a privacy-conscious CoffeeOS support bundle."""
+from __future__ import annotations
+import os, platform, subprocess, tarfile, tempfile
+from datetime import datetime
+from pathlib import Path
+
+COMMANDS={
+ 'os-release':['cat','/etc/os-release'],
+ 'kernel':['uname','-a'],
+ 'cpu':['lscpu'],
+ 'pci':['lspci','-nnk'],
+ 'memory':['free','-h'],
+ 'storage':['lsblk','-f'],
+ 'failed-units':['systemctl','--failed','--no-pager'],
+ 'network':['nmcli','-f','DEVICE,TYPE,STATE,CONNECTION','device','status'],
+ 'audio':['wpctl','status'],
+ 'opengl':['glxinfo','-B'],
+ 'vulkan':['vulkaninfo','--summary'],
+ 'gaming':['coffee-gaming-mode','--status'],
+ 'performance':['coffee-performance-status'],
+}
+def cap(argv):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=20,check=False)
+        return p.stdout
+    except Exception as exc:return str(exc)
+def main():
+    outdir=Path.home()/'Downloads'; outdir.mkdir(parents=True,exist_ok=True)
+    stamp=datetime.now().strftime('%Y%m%d-%H%M%S'); archive=outdir/f'coffeeos-support-{stamp}.tar.gz'
+    with tempfile.TemporaryDirectory() as td:
+        root=Path(td)/'coffeeos-support'; root.mkdir()
+        for name,cmd in COMMANDS.items(): (root/(name+'.txt')).write_text(cap(cmd),errors='replace')
+        # Errors only; avoid exporting the full journal or environment.
+        (root/'journal-errors.txt').write_text(cap(['journalctl','-b','-p','warning','--no-pager','-n','300']),errors='replace')
+        release=Path('/usr/share/coffeeos/release')
+        if release.exists(): (root/'coffeeos-release.txt').write_text(release.read_text(errors='replace'))
+        with tarfile.open(archive,'w:gz') as tar: tar.add(root,arcname='coffeeos-support')
+    print(str(archive))
+if __name__=='__main__': main()

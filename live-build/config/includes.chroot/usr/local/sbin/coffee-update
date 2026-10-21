@@ -16,6 +16,8 @@ SOURCE=Path('/etc/apt/sources.list.d/coffeeos-updates.sources')
 KEYRING=Path('/usr/share/keyrings/coffeeos-update.gpg')
 STATE=Path('/var/lib/coffeeos/update-status.json')
 RELEASE=Path('/usr/share/coffeeos/release')
+ROLLBACK=Path('/var/lib/coffeeos/rollback')
+CHANNELS={'stable','beta','dev'}
 
 
 def run(argv, *, check=False, capture=False, env=None):
@@ -134,10 +136,61 @@ def do_check(background=False):
         print(f"Available upgrades: {len(lines)} ({data['coffeeos_upgrade_count']} CoffeeOS)")
         for line in lines: print(line)
 
+def save_rollback():
+    ROLLBACK.mkdir(parents=True,exist_ok=True)
+    stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    target=ROLLBACK/stamp; target.mkdir()
+    rows=run(['dpkg-query','-W','-f=${binary:Package}\t${Version}\n'],capture=True)
+    saved=[]
+    for line in rows.stdout.splitlines():
+        try: pkg,version=line.split('\t',1)
+        except ValueError: continue
+        base=pkg.split(':',1)[0]
+        if base!='coffeeos-system' and '-coffee' not in base: continue
+        p=run(['apt-get','download',f'{pkg}={version}'],capture=True)
+        if p.returncode==0: saved.append(f'{pkg}\t{version}')
+    (target/'manifest.tsv').write_text('\n'.join(saved)+'\n')
+    if not saved:
+        shutil.rmtree(target,ignore_errors=True)
+        return ''
+    # Keep only the five newest recovery snapshots.
+    snapshots=sorted([x for x in ROLLBACK.iterdir() if x.is_dir()],reverse=True)
+    for old in snapshots[5:]: shutil.rmtree(old,ignore_errors=True)
+    return str(target)
+
+def rollback_list():
+    if not ROLLBACK.exists(): return
+    for item in sorted((x for x in ROLLBACK.iterdir() if x.is_dir()),reverse=True):
+        print(item.name)
+
+def do_rollback():
+    root_required(); installed_only()
+    if not ROLLBACK.exists(): raise SystemExit('No CoffeeOS rollback snapshot is available.')
+    snapshots=sorted((x for x in ROLLBACK.iterdir() if x.is_dir()),reverse=True)
+    if not snapshots: raise SystemExit('No CoffeeOS rollback snapshot is available.')
+    debs=sorted(snapshots[0].glob('*.deb'))
+    if not debs: raise SystemExit('Latest rollback snapshot contains no packages.')
+    subprocess.run(['dpkg','-i',*map(str,debs)],check=False)
+    env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
+    run(['apt-get','-f','-y','install'],check=True,env=env)
+    print('Rollback packages restored from '+snapshots[0].name+'. Reboot if a kernel package changed.')
+
+def set_channel(channel):
+    root_required(); installed_only()
+    if channel not in CHANNELS: raise SystemExit('Channel must be stable, beta or dev.')
+    url,_=feed_info()
+    if not url or not KEYRING.exists(): raise SystemExit('Configure a signed CoffeeOS update feed first.')
+    SOURCE.write_text(f'''Types: deb\nURIs: {url}\nSuites: {channel}\nComponents: main\nSigned-By: {KEYRING}\n''')
+    CONF.parent.mkdir(parents=True,exist_ok=True)
+    CONF.write_text(f'COFFEEOS_FEED_URL={url}\nCOFFEEOS_FEED_SUITE={channel}\n')
+    print('CoffeeOS update channel set to '+channel+'.')
+
 def do_upgrade():
     root_required(); installed_only()
     env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
     run(['apt-get','update'],check=True,env=env)
+    snapshot=save_rollback()
+    if snapshot: print('Rollback snapshot: '+snapshot)
     # dist-upgrade is required so new CoffeeKernel dependency sets can move forward.
     run(['apt-get','-y','dist-upgrade'],check=True,env=env)
     lines=upgradable(); data=write_state(lines)
@@ -201,7 +254,7 @@ def main():
     p=sub.add_parser('status'); p.add_argument('--json',action='store_true')
     sub.add_parser('list')
     p=sub.add_parser('check'); p.add_argument('--background',action='store_true')
-    sub.add_parser('upgrade'); sub.add_parser('cleanup')
+    sub.add_parser('upgrade'); sub.add_parser('cleanup'); sub.add_parser('rollback-list'); sub.add_parser('rollback-latest'); p=sub.add_parser('set-channel'); p.add_argument('channel',choices=sorted(CHANNELS))
     p=sub.add_parser('set-feed'); p.add_argument('url'); p.add_argument('suite'); p.add_argument('public_key')
     sub.add_parser('clear-feed')
     a=ap.parse_args()
@@ -210,6 +263,9 @@ def main():
     elif a.cmd=='check': do_check(a.background)
     elif a.cmd=='upgrade': do_upgrade()
     elif a.cmd=='cleanup': do_cleanup()
+    elif a.cmd=='rollback-list': rollback_list()
+    elif a.cmd=='rollback-latest': do_rollback()
+    elif a.cmd=='set-channel': set_channel(a.channel)
     elif a.cmd=='set-feed': configure_feed(a.url,a.suite,a.public_key)
     elif a.cmd=='clear-feed': clear_feed()
 if __name__=='__main__': main()

@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""Privileged CoffeeOS settings. All accepted values are allow-listed."""
+from __future__ import annotations
+import argparse, os, pwd, re, shutil, subprocess, sys
+from pathlib import Path
+
+FIREWALL=Path('/etc/nftables.d/coffeeos.nft')
+NFTCONF=Path('/etc/nftables.conf')
+POWER=Path('/etc/systemd/logind.conf.d/60-coffeeos-power.conf')
+AUTOLOGIN=Path('/etc/coffeeos/autologin.conf')
+GRUBCFG=Path('/boot/grub/grub.cfg')
+LID={'suspend':'suspend','lock':'lock','ignore':'ignore','poweroff':'poweroff'}
+CHANNELS={'stable','beta','dev'}
+
+def root():
+    if os.geteuid()!=0: raise SystemExit('Root is required. Coffee Control Center uses polkit.')
+def run(argv,check=False,capture=False,timeout=120):
+    kw={'text':True,'check':check,'timeout':timeout}
+    if capture: kw.update(stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+    return subprocess.run(argv,**kw)
+
+def firewall_status():
+    enabled=FIREWALL.exists()
+    active=False
+    if shutil.which('nft'):
+        p=run(['nft','list','table','inet','coffeeos'],capture=True,timeout=5); active=p.returncode==0
+    print('enabled' if enabled and active else ('configured' if enabled else 'disabled'))
+
+def firewall_enable():
+    root(); FIREWALL.parent.mkdir(parents=True,exist_ok=True)
+    FIREWALL.write_text("""table inet coffeeos {
+  chain input {
+    type filter hook input priority 0; policy drop;
+    ct state established,related accept
+    iifname "lo" accept
+    ip protocol icmp accept
+    ip6 nexthdr ipv6-icmp accept
+    udp sport 67 udp dport 68 accept
+    udp sport 547 udp dport 546 accept
+  }
+  chain forward { type filter hook forward priority 0; policy drop; }
+  chain output { type filter hook output priority 0; policy accept; }
+}
+""")
+    if not NFTCONF.exists(): NFTCONF.write_text('#!/usr/sbin/nft -f\nflush ruleset\n')
+    text=NFTCONF.read_text()
+    include='include "/etc/nftables.d/*.nft"'
+    if include not in text: NFTCONF.write_text(text.rstrip()+'\n'+include+'\n')
+    run(['nft','delete','table','inet','coffeeos'],capture=True,timeout=5)
+    run(['nft','-f',str(FIREWALL)],check=True,timeout=10)
+    run(['systemctl','enable','--now','nftables.service'],check=False,timeout=20)
+    print('CoffeeOS firewall enabled. Unsolicited inbound traffic is blocked.')
+
+def firewall_disable():
+    root(); run(['nft','delete','table','inet','coffeeos'],capture=True,timeout=5); FIREWALL.unlink(missing_ok=True)
+    print('CoffeeOS firewall rules removed. Other nftables rules were left untouched.')
+
+def lid_set(action):
+    root()
+    if action not in LID: raise SystemExit('invalid lid action')
+    POWER.parent.mkdir(parents=True,exist_ok=True)
+    POWER.write_text(f"[Login]\nHandleLidSwitch={LID[action]}\nHandleLidSwitchExternalPower={LID[action]}\n")
+    print('Lid behavior saved. It will be fully applied after the next login/reboot.')
+
+def time_status():
+    p=run(['timedatectl','show','--property=Timezone','--property=NTP','--property=NTPSynchronized'],capture=True,timeout=5)
+    print(p.stdout.strip())
+def timezone_set(zone):
+    root()
+    zonefile=(Path('/usr/share/zoneinfo')/zone).resolve()
+    rootzone=Path('/usr/share/zoneinfo').resolve()
+    if not str(zonefile).startswith(str(rootzone)+'/') or not zonefile.is_file(): raise SystemExit('invalid timezone')
+    run(['timedatectl','set-timezone',zone],check=True)
+def ntp_set(state):
+    root(); run(['timedatectl','set-ntp','true' if state=='on' else 'false'],check=True)
+def locale_set(locale):
+    root()
+    if not re.fullmatch(r'[A-Za-z_]+(?:\.[A-Za-z0-9-]+)?',locale): raise SystemExit('invalid locale')
+    available=run(['locale','-a'],capture=True).stdout.splitlines()
+    normalized=locale.lower().replace('-','')
+    if not any(x.lower().replace('-','')==normalized for x in available): raise SystemExit('locale is not generated on this system')
+    run(['localectl','set-locale',f'LANG={locale}'],check=True)
+
+def install_feature(name):
+    root()
+    packages={
+      'flatpak':['flatpak','xdg-desktop-portal-gtk'],
+      'printing':['cups','cups-client','system-config-printer','printer-driver-all'],
+    }
+    if name not in packages: raise SystemExit('unknown optional feature')
+    env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
+    run(['apt-get','update'],check=True,timeout=900)
+    subprocess.run(['apt-get','-y','install',*packages[name]],check=True,env=env,timeout=3600)
+    if name=='printing': run(['systemctl','enable','--now','cups.service'],check=False)
+    print(f'{name} support installed.')
+
+def autologin(state,user):
+    root()
+    try: entry=pwd.getpwnam(user)
+    except KeyError: raise SystemExit('unknown user')
+    if entry.pw_uid==0 or entry.pw_uid<1000: raise SystemExit('automatic login is only allowed for normal non-root users')
+    AUTOLOGIN.parent.mkdir(parents=True,exist_ok=True)
+    AUTOLOGIN.write_text(f"ENABLED={'true' if state=='on' else 'false'}\nUSER={user}\n")
+    os.chmod(AUTOLOGIN,0o644)
+    print(f'Automatic login {"enabled" if state=="on" else "disabled"} for {user}. It applies at the next boot/login manager restart.')
+
+def account_name(user,name):
+    root()
+    try: entry=pwd.getpwnam(user)
+    except KeyError: raise SystemExit('unknown user')
+    if entry.pw_uid<1000 or user=='root': raise SystemExit('invalid account')
+    if not name or len(name)>80 or any(c in name for c in ':\n\r'): raise SystemExit('invalid display name')
+    run(['usermod','-c',name,user],check=True)
+    print('Display name updated.')
+
+def cleanup():
+    root(); env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
+    subprocess.run(['apt-get','-y','autoremove'],env=env,check=False,timeout=1800)
+    subprocess.run(['apt-get','clean'],env=env,check=False,timeout=600)
+    subprocess.run(['journalctl','--vacuum-size=100M'],check=False,timeout=120)
+    print('System package cache, unneeded packages and old journal data cleaned.')
+
+def smart(device):
+    root()
+    if not re.fullmatch(r'/dev/(?:sd[a-z]+|nvme\d+n\d+)',device): raise SystemExit('unsupported device path')
+    p=run(['smartctl','-H','-A',device],capture=True,timeout=30); print(p.stdout); raise SystemExit(p.returncode)
+
+def recovery_status():
+    kernels=sorted(str(x) for x in Path('/boot').glob('vmlinuz-*'))
+    stock=[x for x in kernels if '-coffee' not in x]
+    coffee=[x for x in kernels if '-coffee' in x]
+    print('CoffeeKernel: '+(', '.join(coffee) if coffee else 'not found'))
+    print('Debian fallback: '+(', '.join(stock) if stock else 'not found'))
+    print('GRUB recovery menu: '+('available' if GRUBCFG.exists() else 'not generated'))
+
+def recovery_next():
+    root()
+    if not GRUBCFG.exists(): raise SystemExit('GRUB configuration not found')
+    text=GRUBCFG.read_text(errors='replace')
+    submenu=re.search(r"^\s*submenu '([^']+)'",text,re.M)
+    entries=re.findall(r"^\s*menuentry '([^']+)'",text,re.M)
+    candidates=[x for x in entries if 'with Linux' in x and 'coffee' not in x.lower() and 'recovery mode' not in x.lower()]
+    if not candidates: raise SystemExit('No Debian fallback kernel entry was found in GRUB')
+    target=candidates[0]
+    if submenu: target=submenu.group(1)+'>'+target
+    run(['grub-reboot',target],check=True)
+    print('Next boot set to Debian fallback kernel: '+target)
+
+def main():
+    ap=argparse.ArgumentParser(); sp=ap.add_subparsers(dest='cmd',required=True)
+    sp.add_parser('firewall-status'); sp.add_parser('firewall-enable'); sp.add_parser('firewall-disable')
+    p=sp.add_parser('lid-set'); p.add_argument('action',choices=sorted(LID))
+    sp.add_parser('time-status'); p=sp.add_parser('timezone-set'); p.add_argument('zone'); p=sp.add_parser('ntp-set'); p.add_argument('state',choices=('on','off')); p=sp.add_parser('locale-set'); p.add_argument('locale')
+    p=sp.add_parser('install-feature'); p.add_argument('name',choices=('flatpak','printing'))
+    p=sp.add_parser('autologin'); p.add_argument('state',choices=('on','off')); p.add_argument('user')
+    p=sp.add_parser('account-name'); p.add_argument('user'); p.add_argument('name')
+    sp.add_parser('cleanup'); p=sp.add_parser('smart'); p.add_argument('device')
+    sp.add_parser('recovery-status'); sp.add_parser('recovery-next')
+    a=ap.parse_args()
+    if a.cmd=='firewall-status': firewall_status()
+    elif a.cmd=='firewall-enable': firewall_enable()
+    elif a.cmd=='firewall-disable': firewall_disable()
+    elif a.cmd=='lid-set': lid_set(a.action)
+    elif a.cmd=='time-status': time_status()
+    elif a.cmd=='timezone-set': timezone_set(a.zone)
+    elif a.cmd=='ntp-set': ntp_set(a.state)
+    elif a.cmd=='locale-set': locale_set(a.locale)
+    elif a.cmd=='install-feature': install_feature(a.name)
+    elif a.cmd=='autologin': autologin(a.state,a.user)
+    elif a.cmd=='account-name': account_name(a.user,a.name)
+    elif a.cmd=='cleanup': cleanup()
+    elif a.cmd=='smart': smart(a.device)
+    elif a.cmd=='recovery-status': recovery_status()
+    elif a.cmd=='recovery-next': recovery_next()
+if __name__=='__main__': main()
