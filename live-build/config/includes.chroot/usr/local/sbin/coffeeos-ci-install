@@ -13,10 +13,10 @@ parted -s "$disk" mkpart ESP fat32 1MiB 513MiB
 parted -s "$disk" set 1 esp on
 parted -s "$disk" mkpart root ext4 513MiB 100%
 partprobe "$disk";udevadm settle
-mkfs.fat -F32 "\${disk}1";mkfs.ext4 -F "\${disk}2"
-mkdir -p "$target";mount "\${disk}2" "$target";mkdir -p "$target/boot/efi";mount "\${disk}1" "$target/boot/efi"
+mkfs.fat -F32 "${disk}1";mkfs.ext4 -F "${disk}2"
+mkdir -p "$target";mount "${disk}2" "$target";mkdir -p "$target/boot/efi";mount "${disk}1" "$target/boot/efi"
 unsquashfs -f -d "$target" "$squash" >/dev/null
-root_uuid=$(blkid -s UUID -o value "\${disk}2");esp_uuid=$(blkid -s UUID -o value "\${disk}1")
+root_uuid=$(blkid -s UUID -o value "${disk}2");esp_uuid=$(blkid -s UUID -o value "${disk}1")
 printf 'UUID=%s / ext4 defaults 0 1\nUUID=%s /boot/efi vfat umask=0077 0 1\n' "$root_uuid" "$esp_uuid" >"$target/etc/fstab"
 echo coffeeos-ci >"$target/etc/hostname";rm -f "$target/etc/machine-id";touch "$target/etc/machine-id"
 rm -f "$target/usr/share/applications/coffeeos-installer.desktop" "$target/usr/local/bin/coffeeos-installer" "$target/usr/local/bin/coffee-installer-preflight" "$target/usr/local/bin/coffee-installer-report"
