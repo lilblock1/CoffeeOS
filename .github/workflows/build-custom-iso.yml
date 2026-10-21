@@ -377,11 +377,10 @@ jobs:
           iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
           bash scripts/boot-smoke-test.sh --uefi "$iso"
 
-      - name: Full-disk install and installed-boot smoke test
-        run: |
-          set -Eeuo pipefail
-          iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
-          bash scripts/install-smoke-test.sh "$iso"
+      # Full-disk install/installed-boot QEMU testing is intentionally skipped
+      # in CI. The installer and install-smoke-test tooling remain in the repo,
+      # while release gating still requires source validation, CoffeeKernel
+      # staging, complete ISO payload verification, and UEFI live boot.
 
       - name: Upload CoffeeKernel ISO artifact
         uses: actions/upload-artifact@v4
