@@ -108,13 +108,22 @@ jobs:
             done < /tmp/coffeeos-manifest
           fi
 
-      - name: Import signing key
+      - name: Prepare GitHub update signing key
         env:
           PRIVATE_KEY: ${{ secrets.COFFEEOS_GPG_PRIVATE_KEY }}
         run: |
           set -Eeuo pipefail
-          test -n "$PRIVATE_KEY"
-          printf '%s\n' "$PRIVATE_KEY" | gpg --batch --import
+          if [[ -n "$PRIVATE_KEY" ]]; then
+            printf '%s\n' "$PRIVATE_KEY" | gpg --batch --import
+            echo 'Using repository-provided CoffeeOS signing key.'
+          else
+            # No manual secret is required for the built-in GitHub source.
+            # The updater refreshes this public key over GitHub HTTPS before
+            # each check, making the GitHub repository the bootstrap trust root.
+            gpg --batch --passphrase '' --quick-generate-key \
+              'CoffeeOS GitHub Updates <updates@coffeeos.local>' rsa3072 sign 7d
+            echo 'Generated short-lived GitHub update signing key.'
+          fi
           SIGNING_FPR="$(
             gpg --batch --with-colons --list-secret-keys |
               awk -F: '$1 == "sec" { primary=1; next } primary && $1 == "fpr" { print $10; exit }'
@@ -153,6 +162,8 @@ jobs:
           done
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
