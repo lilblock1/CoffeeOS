@@ -35,6 +35,52 @@ PACKAGE_GROUPS = {
 }
 
 
+def _ensure_coffeeos_apt_components():
+    """Restore components CoffeeOS supports after Debian's sources-final job.
+
+    Debian 13's Calamares settings write only main + non-free-firmware. CoffeeOS
+    offers Steam and NVIDIA support, which also require contrib and non-free.
+    Handle both classic sources.list and deb822 .sources files.
+    """
+    script = r"""
+from pathlib import Path
+
+wanted = ("main", "contrib", "non-free", "non-free-firmware")
+
+classic = Path("/etc/apt/sources.list")
+if classic.is_file():
+    out = []
+    for line in classic.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("deb ") or stripped.startswith("deb-src "):
+            parts = line.split()
+            for component in wanted:
+                if component not in parts:
+                    parts.append(component)
+            line = " ".join(parts)
+        out.append(line)
+    classic.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+sources_dir = Path("/etc/apt/sources.list.d")
+if sources_dir.is_dir():
+    for path in sources_dir.glob("*.sources"):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        changed = False
+        for index, line in enumerate(lines):
+            if line.strip().startswith("Components:"):
+                prefix = line[: len(line) - len(line.lstrip())]
+                components = line.split(":", 1)[1].split()
+                for component in wanted:
+                    if component not in components:
+                        components.append(component)
+                        changed = True
+                lines[index] = prefix + "Components: " + " ".join(components)
+        if changed:
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+"""
+    check_target_env_call(["python3", "-c", script])
+
+
 def pretty_name():
     return "Install selected CoffeeOS software."
 
@@ -74,6 +120,8 @@ def run():
         "/etc/systemd/system/coffeeos-ci-install.service",
         "/etc/systemd/system/multi-user.target.wants/coffeeos-ci-install.service",
     ])
+
+    _ensure_coffeeos_apt_components()
 
     selected = _selected_ids()
     if not selected:
