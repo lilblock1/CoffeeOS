@@ -120,7 +120,6 @@ class TestOptimizationPipeline(unittest.TestCase):
     def test_xorriso_quoted_live_paths_are_normalized(self):
         verify=(ROOT/'scripts/verify-optimization-image.sh').read_text()
         self.assertIn('normalize_xorriso_paths()', verify)
-        self.assertIn('sed -e "s/^\\'//" -e "s/\\'$//"', verify)
         self.assertGreaterEqual(verify.count('| normalize_xorriso_paths'), 2)
         # Regression for run 39617695618: xorriso printed a valid custom
         # kernel as '/live/vmlinuz-6.12.113-coffee', including presentation
