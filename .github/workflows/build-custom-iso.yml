@@ -33,13 +33,24 @@ jobs:
           echo "After cleanup:"
           df -h /
 
-      - name: Add build swap
+      - name: Check memory and use swap if available
         run: |
           set -Eeuo pipefail
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          free -h
+          echo "Existing swap:"
+          swapon --show || true
+
+          # GitHub-hosted runners may already have /swapfile active. Do not
+          # fail the build if swap cannot be created or enabled.
+          if ! swapon --show --noheadings | grep -q .; then
+            if sudo fallocate -l 8G /mnt/coffeeos-swapfile 2>/dev/null; then
+              sudo chmod 600 /mnt/coffeeos-swapfile
+              sudo mkswap /mnt/coffeeos-swapfile
+              sudo swapon /mnt/coffeeos-swapfile || true
+            fi
+          fi
+
+          echo "Memory after optional swap setup:"
           free -h
 
       - name: Prepare verification tools
