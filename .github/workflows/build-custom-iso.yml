@@ -244,7 +244,7 @@ jobs:
 
               echo "[CoffeeOS] CoffeeKernel packages:"
               ls -lh dist/kernels/coffee/
-              sha256sum -c dist/kernels/coffee/SHA256SUMS
+              (cd dist/kernels/coffee && sha256sum -c SHA256SUMS)
               cat live-build/config/includes.chroot/usr/share/coffeeos/kernel-build-status.txt
 
               echo "[CoffeeOS] Building ISO with CoffeeKernel staged..."
@@ -279,7 +279,7 @@ jobs:
           test "${#imgs[@]}" -eq 1
           test "${#hdrs[@]}" -eq 1
           dpkg-deb -f "${imgs[0]}" Package Version Architecture
-          sha256sum -c dist/kernels/coffee/SHA256SUMS
+          (cd dist/kernels/coffee && sha256sum -c SHA256SUMS)
           cat live-build/config/includes.chroot/usr/share/coffeeos/kernel-build-status.txt
 
       - name: Verify complete ISO payload and boot structures
