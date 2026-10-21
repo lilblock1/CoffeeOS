@@ -129,7 +129,6 @@ class TestOptimizationPipeline(unittest.TestCase):
             ['sed','-e',"s/^'//",'-e',"s/'$//"],
             input=sample,text=True,capture_output=True,check=True)
         self.assertEqual(proc.stdout.strip(),'/live/vmlinuz-6.12.113-coffee')
-        self.assertRegex(proc.stdout.strip(),r'^/live/vmlinuz-.*-coffee\\Z')
 
     def test_memory_storage_and_logging_defaults_are_conservative(self):
         zram=(INC/'usr/lib/systemd/zram-generator.conf.d/60-coffeeos.conf').read_text()

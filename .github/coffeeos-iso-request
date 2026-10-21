@@ -2,5 +2,5 @@
 
 Replacement build requested to verify the fix for failed workflow run 39617695618.
 Reason: normalize xorriso-quoted CoffeeKernel paths during ISO payload verification.
-Retry: 5
+Retry: 6
 Requested: 2026-10-21
