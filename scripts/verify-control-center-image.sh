@@ -75,7 +75,12 @@ grep -q 'calamares-install-debian' <<<"$installer_launcher" || {
   echo 'ERROR: CoffeeOS installer does not prefer the Debian 13 privileged Calamares wrapper.' >&2
   exit 6
 }
-if grep -q '^  exec calamares "\$@" <<<"$installer_launcher"; then
+if grep -q '^  exec calamares "\$@"
+  echo 'ERROR: CoffeeOS installer can launch Calamares unprivileged.' >&2
+  exit 6
+fi
+echo 'Calamares privileged launcher, unpackfs dependency and Phase 5 Coffee Control Center payload verified inside SquashFS.'
+ <<<"$installer_launcher"; then
   echo 'ERROR: CoffeeOS installer can launch Calamares unprivileged.' >&2
   exit 6
 fi
