@@ -57,6 +57,15 @@ class TestControlCenterIntegration(unittest.TestCase):
         for page in ('overview','display','audio','bluetooth','updates','software'):
             self.assertIn("'"+page+"'",control)
 
+    def test_bluetooth_battery_and_bug_reporter(self):
+        hardware=(BIN/'coffee-hardware-settings').read_text()
+        self.assertIn('Battery Percentage:',hardware)
+        self.assertIn('battery_percent',hardware)
+        control=(BIN/'coffee-control-center').read_text()
+        self.assertIn('Battery {battery}%',control)
+        self.assertIn('Report a Bug',control)
+        self.assertIn("['coffee-bug-report']",control)
+
     def test_gpu_switching_controller_and_flatpak_pages(self):
         control=(BIN/'coffee-control-center').read_text()
         self.assertIn("if self.multi_gpu: self.add_page('gpu', 'GPU Switching'",control)

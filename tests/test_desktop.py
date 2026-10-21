@@ -99,6 +99,19 @@ class TestDesktopConfig(unittest.TestCase):
             self.assertIn(pkg,packages)
 
 
+    def test_welcome_is_hardware_aware_and_bug_reporter_is_private(self):
+        welcome=(BIN/'coffee-first-boot').read_text()
+        self.assertIn('hardware_summary',welcome)
+        self.assertIn('Recommended for this PC',welcome)
+        self.assertIn('GPU Switching',welcome)
+        self.assertIn('Flatpak Permissions',welcome)
+        reporter=(BIN/'coffee-bug-report').read_text()
+        self.assertIn('CoffeeOS never uploads diagnostics automatically.',reporter)
+        self.assertIn('https://github.com/lilblock1/CoffeeOS/issues/new',reporter)
+        self.assertIn('coffee-support-bundle',reporter)
+        desktop=(CHROOT/'usr/share/applications/coffee-bug-report.desktop').read_text()
+        self.assertIn('Exec=coffee-bug-report',desktop)
+
     def test_multi_gpu_and_controller_packages(self):
         desktop=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
         gaming=set((ROOT/'live-build/config/package-lists/30-gaming.list.chroot').read_text().split())
@@ -172,7 +185,7 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_python_files_compile_without_gui(self):
         import ast
-        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot','coffee-desktop-settings','coffee-night-light','coffee-gaming-indicator','coffee-support-bundle','coffee-installer-preflight','coffee-installer-report','coffee-hardware-health','coffee-driver-info','coffee-network-settings','coffee-accessibility','coffee-clipboard-history','coffee-app-center','coffee-gpu-manager','coffee-flatpak-permissions'):
+        for name in ('coffee-wifi-menu','coffee-power-menu','coffee-appearance','coffee-control-center','coffee-hardware-settings','coffee-first-boot','coffee-desktop-settings','coffee-night-light','coffee-gaming-indicator','coffee-support-bundle','coffee-installer-preflight','coffee-installer-report','coffee-hardware-health','coffee-driver-info','coffee-network-settings','coffee-accessibility','coffee-clipboard-history','coffee-app-center','coffee-gpu-manager','coffee-flatpak-permissions','coffee-bug-report'):
             ast.parse((BIN/name).read_text())
 
 class TestDesktopAppearance(unittest.TestCase):

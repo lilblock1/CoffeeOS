@@ -303,6 +303,7 @@ class CoffeeControlCenter(Gtk.Window):
         actions.pack_start(self.button('Display', lambda *_: self.stack.set_visible_child_name('display')), False, False, 0)
         actions.pack_start(self.button('Audio', lambda *_: self.stack.set_visible_child_name('audio')), False, False, 0)
         actions.pack_start(self.button('Terminal Info', lambda *_: self.launch(['foot','-e','coffee-info'])), False, False, 0)
+        actions.pack_start(self.button('Report Bug', lambda *_: self.launch(['coffee-bug-report'])), False, False, 0)
         box.pack_start(actions, False, False, 0)
         self.overview_session = self.label('', 'muted'); box.pack_start(self.overview_session, False, False, 0)
         return box
@@ -380,7 +381,7 @@ class CoffeeControlCenter(Gtk.Window):
         for child in self.bt_list.get_children(): self.bt_list.remove(child)
         devices=data.get('devices',[])
         for item in devices:
-            row=Gtk.ListBoxRow(); inner=Gtk.Box(spacing=10); inner.set_border_width(9); row.add(inner); labels=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=2); labels.pack_start(self.label(item.get('name') or item.get('address','')),False,False,0); state='Connected' if item.get('connected') else ('Paired' if item.get('paired') else 'Available'); labels.pack_start(self.label(f"{state} · {item.get('address','')}",'muted'),False,False,0); inner.pack_start(labels,True,True,0)
+            row=Gtk.ListBoxRow(); inner=Gtk.Box(spacing=10); inner.set_border_width(9); row.add(inner); labels=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=2); labels.pack_start(self.label(item.get('name') or item.get('address','')),False,False,0); state='Connected' if item.get('connected') else ('Paired' if item.get('paired') else 'Available'); battery=item.get('battery_percent'); detail=f"{state} · {item.get('address','')}"+(f" · Battery {battery}%" if battery is not None else ''); labels.pack_start(self.label(detail,'muted'),False,False,0); inner.pack_start(labels,True,True,0)
             if item.get('connected'): label,action='Disconnect','bluetooth-disconnect'
             elif item.get('paired'): label,action='Connect','bluetooth-connect'
             else: label,action='Pair','bluetooth-pair'
@@ -660,7 +661,7 @@ class CoffeeControlCenter(Gtk.Window):
         rr=Gtk.Box(spacing=8); rr.pack_start(self.button('Boot Debian Fallback Next Restart',self.recovery_next,True),False,False,0); rr.pack_start(self.button('Rollback Last CoffeeOS Update',self.rollback_update),False,False,0); box.pack_start(rr,False,False,0)
         box.pack_start(self.label('GRUB stays visible for 5 seconds so the Debian fallback kernel remains manually selectable even if CoffeeKernel has a problem.','muted'),False,False,0)
         self.section(box,'Support')
-        br=Gtk.Box(spacing=8); br.pack_start(self.button('Create Support Bundle',self.support_bundle),False,False,0); br.pack_start(self.button('Terminal Hardware Info',lambda *_:self.launch(['foot','-e','coffee-info'])),False,False,0); box.pack_start(br,False,False,0)
+        br=Gtk.Box(spacing=8); br.pack_start(self.button('Create Support Bundle',self.support_bundle),False,False,0); br.pack_start(self.button('Report a Bug',lambda *_:self.launch(['coffee-bug-report']),True),False,False,0); br.pack_start(self.button('Terminal Hardware Info',lambda *_:self.launch(['foot','-e','coffee-info'])),False,False,0); box.pack_start(br,False,False,0)
         box.pack_start(self.label('Support bundles contain hardware/system diagnostics and warning-level logs, not saved Wi-Fi passwords or your full environment.','muted'),False,False,0)
         return box
     def refresh_system(self):

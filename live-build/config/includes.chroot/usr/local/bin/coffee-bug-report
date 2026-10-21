@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Privacy-first CoffeeOS GitHub issue helper."""
+from __future__ import annotations
+import argparse,json,os,platform,subprocess,urllib.parse
+from pathlib import Path
+import gi
+gi.require_version('Gtk','3.0')
+from gi.repository import Gtk
+
+ISSUES='https://github.com/lilblock1/CoffeeOS/issues/new'
+
+def cap(argv,timeout=12):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,check=False)
+        return p.returncode,p.stdout.strip()
+    except (OSError,subprocess.TimeoutExpired) as exc:return 127,str(exc)
+
+def release_info():
+    data={}
+    try:
+        for line in Path('/usr/share/coffeeos/release').read_text().splitlines():
+            if '=' in line:
+                k,v=line.split('=',1);data[k]=v
+    except OSError:pass
+    try:data['build']=json.loads(Path('/usr/share/coffeeos/build-info.json').read_text())
+    except (OSError,ValueError):data['build']={}
+    return data
+
+def summary():
+    rel=release_info();rc,raw=cap(['coffee-driver-info'])
+    try:gpus=json.loads(raw).get('gpus',[]) if rc==0 else []
+    except ValueError:gpus=[]
+    gpu=', '.join((x.get('device') or 'GPU').split(': ',1)[-1] for x in gpus[:3]) or 'not reported'
+    build=rel.get('build',{})
+    return '\n'.join([
+      'CoffeeOS bug report',
+      '',
+      'CoffeeOS version: '+rel.get('COFFEEOS_VERSION','unknown'),
+      'Build commit: '+str(build.get('commit','unknown'))[:12],
+      'Kernel: '+platform.release(),
+      'Architecture: '+platform.machine(),
+      'Desktop session: '+os.environ.get('XDG_CURRENT_DESKTOP','unknown'),
+      'Graphics: '+gpu,
+      '',
+      'Describe what happened:',
+      '',
+      'Steps to reproduce:',
+      '1. ',
+      '2. ',
+      '',
+      'Expected behavior:',
+      '',
+      'Actual behavior:',
+      '',
+      'Support bundle: created locally only; review it before attaching.',
+    ])
+
+def issue_url():
+    body=summary()
+    return ISSUES+'?'+urllib.parse.urlencode({'title':'[CoffeeOS] ','body':body})
+
+def create_bundle():
+    rc,out=cap(['coffee-support-bundle'],60)
+    if rc:raise RuntimeError(out or 'Support bundle failed.')
+    return out.splitlines()[-1].strip()
+
+def open_issue():
+    url=issue_url()
+    subprocess.Popen(['xdg-open',url],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    return url
+
+class Window(Gtk.Window):
+    def __init__(self):
+        super().__init__(title='CoffeeOS Bug Reporter');self.set_default_size(720,560);self.set_border_width(20)
+        box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=10);self.add(box)
+        title=Gtk.Label(label='☕  Report a CoffeeOS Bug');title.set_xalign(0);box.pack_start(title,False,False,0)
+        note=Gtk.Label(label='Review the information below first. CoffeeOS never uploads diagnostics automatically.');note.set_xalign(0);note.set_line_wrap(True);box.pack_start(note,False,False,0)
+        self.view=Gtk.TextView(editable=True,monospace=True);self.view.get_buffer().set_text(summary());scroll=Gtk.ScrolledWindow();scroll.add(self.view);box.pack_start(scroll,True,True,0)
+        self.status=Gtk.Label(label='No files have been uploaded.');self.status.set_xalign(0);box.pack_start(self.status,False,False,0)
+        row=Gtk.Box(spacing=8);box.pack_end(row,False,False,0)
+        b=Gtk.Button(label='Create Local Support Bundle');b.connect('clicked',self.bundle);row.pack_start(b,False,False,0)
+        b=Gtk.Button(label='Open GitHub Issue');b.connect('clicked',self.open);row.pack_end(b,False,False,0)
+    def bundle(self,*_):
+        try:self.status.set_text('Saved locally: '+create_bundle()+' — review it before attaching.')
+        except RuntimeError as exc:self.status.set_text(str(exc))
+    def open(self,*_):
+        start,end=self.view.get_buffer().get_bounds();body=self.view.get_buffer().get_text(start,end,True)
+        url=ISSUES+'?'+urllib.parse.urlencode({'title':'[CoffeeOS] ','body':body})
+        subprocess.Popen(['xdg-open',url],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+        self.status.set_text('GitHub issue page opened. Nothing was attached automatically.')
+
+def main():
+    ap=argparse.ArgumentParser();ap.add_argument('--summary',action='store_true');ap.add_argument('--bundle',action='store_true');ap.add_argument('--open',action='store_true');a=ap.parse_args()
+    if a.summary:print(summary());return
+    if a.bundle:print(create_bundle());return
+    if a.open:print(open_issue());return
+    w=Window();w.connect('destroy',Gtk.main_quit);w.show_all();Gtk.main()
+if __name__=='__main__':main()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CoffeeOS first installed-login welcome."""
 from __future__ import annotations
-import argparse, os, subprocess
+import argparse, json, os, platform, subprocess
 from pathlib import Path
 import gi
 gi.require_version('Gtk','3.0')
@@ -23,6 +23,25 @@ def oem_mode(): return Path('/etc/coffeeos/oem-firstboot').exists()
 def is_live():
     try: return 'boot=live' in Path('/proc/cmdline').read_text(encoding='utf-8')
     except OSError: return False
+def capture(argv,timeout=6):
+    try:
+        p=subprocess.run(argv,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,check=False)
+        return p.returncode,p.stdout.strip()
+    except (OSError,subprocess.TimeoutExpired) as exc:return 127,str(exc)
+def hardware_summary():
+    rc,raw=capture(['coffee-driver-info'],8)
+    try:gpu=json.loads(raw) if rc==0 else {}
+    except ValueError:gpu={}
+    rc,raw=capture(['coffee-hardware-settings','bluetooth-list'],6)
+    try:bt=json.loads(raw) if rc==0 else {}
+    except ValueError:bt={}
+    rc,raw=capture(['coffee-desktop-settings','controllers'],4)
+    try:controllers=json.loads(raw) if rc==0 else []
+    except ValueError:controllers=[]
+    return {'gpus':gpu.get('gpus',[]),'multi_gpu':bool(gpu.get('hybrid')),
+      'nvidia':any('nvidia' in (x.get('device','')+' '+x.get('driver','')).lower() for x in gpu.get('gpus',[])),
+      'bluetooth':bool(bt.get('available')),'controllers':len(controllers),
+      'kernel':platform.release(),'arch':platform.machine()}
 def apply_style():
     screen=Gdk.Screen.get_default()
     if screen is None: return
@@ -31,15 +50,29 @@ def apply_style():
     provider=Gtk.CssProvider(); provider.load_from_data(data); Gtk.StyleContext.add_provider_for_screen(screen,provider,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 class Welcome(Gtk.Window):
     def __init__(self):
-        super().__init__(title='New Owner Setup' if oem_mode() else 'Welcome to CoffeeOS'); self.set_default_size(700,520); self.set_position(Gtk.WindowPosition.CENTER); self.get_style_context().add_class('coffee-welcome')
-        box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=14); box.set_border_width(30); self.add(box)
-        title=Gtk.Label(label='☕  New Owner Setup' if oem_mode() else '☕  Welcome to CoffeeOS'); title.set_xalign(0); title.get_style_context().add_class('title'); box.pack_start(title,False,False,0)
-        intro=Gtk.Label(label=('This CoffeeOS installation was prepared for you. Review your account, password and device settings, then finish setup.' if oem_mode() else 'Your system is ready. Use these shortcuts to finish setting up CoffeeOS.')); intro.set_xalign(0); intro.set_line_wrap(True); intro.get_style_context().add_class('muted'); box.pack_start(intro,False,False,0)
-        section=Gtk.Label(label='Finish setting up your desktop'); section.set_xalign(0); section.get_style_context().add_class('section'); box.pack_start(section,False,False,8)
-        grid=Gtk.Grid(column_spacing=10,row_spacing=10,column_homogeneous=True); box.pack_start(grid,True,True,0)
-        for col,row,title,detail,page in ((0,0,'Display','Resolution, refresh rate, scale and layout','display'),(1,0,'Audio','Speakers, microphone, volume and mute','audio'),(0,1,'Bluetooth','Pair and connect wireless devices','bluetooth'),(1,1,'Updates','Check CoffeeOS and Debian updates','updates'),(0,2,'Software & Drivers','Optional software and graphics drivers','software'),(1,2,'Account & Security','Name, password, avatar and security','security')):
-            button=self.page_button(title,detail,page); grid.attach(button,col,row,1,1)
-        footer=Gtk.Box(spacing=10); box.pack_end(footer,False,False,0)
+        super().__init__(title='New Owner Setup' if oem_mode() else 'Welcome to CoffeeOS'); self.set_default_size(760,620); self.set_position(Gtk.WindowPosition.CENTER); self.get_style_context().add_class('coffee-welcome')
+        self.hardware=hardware_summary()
+        outer=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=14); outer.set_border_width(26); self.add(outer)
+        title=Gtk.Label(label='☕  New Owner Setup' if oem_mode() else '☕  Welcome to CoffeeOS'); title.set_xalign(0); title.get_style_context().add_class('title'); outer.pack_start(title,False,False,0)
+        intro=Gtk.Label(label=('This CoffeeOS installation was prepared for you. Review the recommendations below, then finish setup.' if oem_mode() else 'CoffeeOS checked this PC and picked the setup shortcuts most likely to matter.')); intro.set_xalign(0); intro.set_line_wrap(True); intro.get_style_context().add_class('muted'); outer.pack_start(intro,False,False,0)
+        summary=Gtk.Label(label=f"Kernel {self.hardware['kernel']} · {self.hardware['arch']} · {len(self.hardware['gpus'])} GPU(s) · {self.hardware['controllers']} controller(s) detected");summary.set_xalign(0);summary.get_style_context().add_class('muted');outer.pack_start(summary,False,False,0)
+        scroll=Gtk.ScrolledWindow();scroll.set_policy(Gtk.PolicyType.NEVER,Gtk.PolicyType.AUTOMATIC);outer.pack_start(scroll,True,True,0)
+        box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=12);box.set_border_width(4);scroll.add(box)
+        section=Gtk.Label(label='Recommended for this PC'); section.set_xalign(0); section.get_style_context().add_class('section'); box.pack_start(section,False,False,4)
+        rec=Gtk.Grid(column_spacing=10,row_spacing=10,column_homogeneous=True);box.pack_start(rec,False,False,0)
+        recommendations=[('Updates','Get CoffeeOS and Debian fixes','updates')]
+        if self.hardware['multi_gpu']:recommendations.append(('GPU Switching','Choose hybrid, integrated or dedicated graphics','gpu'))
+        if self.hardware['nvidia']:recommendations.append(('NVIDIA Driver','Review proprietary driver support','software'))
+        if self.hardware['bluetooth']:recommendations.append(('Bluetooth','Pair devices and view battery levels','bluetooth'))
+        if self.hardware['controllers']:recommendations.append(('Controllers','Test buttons, axes and rumble','controllers'))
+        for i,(name,detail,page) in enumerate(recommendations):
+            rec.attach(self.page_button(name,detail,page),i%2,i//2,1,1)
+        section=Gtk.Label(label='Finish setting up your desktop'); section.set_xalign(0); section.get_style_context().add_class('section'); box.pack_start(section,False,False,4)
+        grid=Gtk.Grid(column_spacing=10,row_spacing=10,column_homogeneous=True); box.pack_start(grid,False,False,0)
+        for col,row,name,detail,page in ((0,0,'Display','Resolution, refresh rate, scale and layout','display'),(1,0,'Audio','Speakers, microphone, volume and mute','audio'),(0,1,'Apps & Startup','Default apps, startup and clipboard','apps'),(1,1,'Flatpak Permissions','Review sandbox overrides','flatpak'),(0,2,'Software & Drivers','Optional software and graphics drivers','software'),(1,2,'Account & Security','Name, password, avatar and security','security')):
+            grid.attach(self.page_button(name,detail,page),col,row,1,1)
+        footer=Gtk.Box(spacing=10); outer.pack_end(footer,False,False,0)
+        bug=Gtk.Button(label='Report a Bug');bug.connect('clicked',lambda *_:subprocess.Popen(['coffee-bug-report'],start_new_session=True));footer.pack_start(bug,False,False,0)
         control=Gtk.Button(label='Open Control Center'); control.connect('clicked',lambda *_:self.open_page('overview')); footer.pack_start(control,True,True,0)
         finish=Gtk.Button(label='Finish Setup'); finish.get_style_context().add_class('suggested-action'); finish.connect('clicked',self.finish); footer.pack_start(finish,True,True,0)
     def page_button(self,title,detail,page):

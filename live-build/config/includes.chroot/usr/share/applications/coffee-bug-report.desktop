@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Report a CoffeeOS Bug
+Comment=Review diagnostics and open a CoffeeOS GitHub issue
+Exec=coffee-bug-report
+Terminal=false
+Type=Application
+Icon=coffeeos
+Categories=System;Utility;
+Keywords=bug;report;support;github;CoffeeOS;
+StartupNotify=true
