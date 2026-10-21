@@ -17,6 +17,7 @@ else
 fi
 for path in \
   /usr/bin/unsquashfs \
+  /usr/bin/calamares-install-debian \
   /usr/local/bin/coffee-installer-preflight \
   /usr/local/bin/coffee-installer-report \
   /usr/local/bin/coffee-hardware-health \
@@ -69,4 +70,13 @@ for path in \
   /usr/share/applications/coffee-welcome.desktop; do
   grep -Fq "$path" <<<"$listing" || { echo "ERROR: Phase 5 payload missing: $path" >&2; exit 5; }
 done
-echo 'Calamares unpackfs dependency and Phase 5 Coffee Control Center payload verified inside SquashFS.'
+installer_launcher=$(unsquashfs -cat "$rootfs" usr/local/bin/coffeeos-installer 2>/dev/null || true)
+grep -q 'calamares-install-debian' <<<"$installer_launcher" || {
+  echo 'ERROR: CoffeeOS installer does not prefer the Debian 13 privileged Calamares wrapper.' >&2
+  exit 6
+}
+if grep -q '^  exec calamares "\$@" <<<"$installer_launcher"; then
+  echo 'ERROR: CoffeeOS installer can launch Calamares unprivileged.' >&2
+  exit 6
+fi
+echo 'Calamares privileged launcher, unpackfs dependency and Phase 5 Coffee Control Center payload verified inside SquashFS.'
