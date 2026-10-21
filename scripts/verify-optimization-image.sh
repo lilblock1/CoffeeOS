@@ -20,7 +20,6 @@ else
   unsquashfs -ll "$squashfs" > "$listing"
 fi
 required=(
-  '/usr/share/coffeeos/kernel-build-status.txt'
   '/usr/share/coffeeos/optimized-packages.tsv'
   '/usr/lib/systemd/zram-generator.conf.d/60-coffeeos.conf'
   '/usr/lib/sysctl.d/60-coffeeos.conf'
@@ -70,8 +69,38 @@ if grep -q '^kernel=CoffeeKernel$' <<<"$kernel_status"; then
   if ! grep -RqsE '/live/vmlinuz-.*-coffee' "$tmp/grub.cfg" "$tmp/live.cfg" 2>/dev/null; then
     echo 'ERROR: CoffeeKernel exists but was not selected by the live boot menu.' >&2; exit 9
   fi
-elif grep -q '^kernel=debian-stock$' <<<"$kernel_status"; then
+elif grep -q '^kernel=debian-stock
+
+echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
+ <<<"$kernel_status"; then
   : # Explicit stock mode.
+elif [[ -z "$kernel_status" ]]; then
+  # Stock ISO builds intentionally skip CoffeeKernel compilation and therefore
+  # do not stage a CoffeeKernel build-status file. In that case, prove that the
+  # image contains a normal Debian kernel and no CoffeeKernel payload.
+  grep -Eq 'squashfs-root/boot/vmlinuz-[^/]+
+
+echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
+ "$listing" || {
+    echo 'ERROR: stock ISO has no kernel image under /boot.' >&2; exit 10;
+  }
+  if grep -Eq 'squashfs-root/boot/vmlinuz-.*-coffee
+
+echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
+ "$listing"; then
+    echo 'ERROR: stock ISO unexpectedly contains CoffeeKernel in /boot.' >&2; exit 10
+  fi
+  iso_live=$(xorriso -indev "$ISO" -find /live -maxdepth 1 -type file -- 2>/dev/null || true)
+  grep -q '/live/vmlinuz' <<<"$iso_live" || {
+    echo 'ERROR: stock ISO has no live kernel.' >&2; exit 10;
+  }
+  if grep -Eq '/live/vmlinuz-.*-coffee
+
+echo 'CoffeeOS optimization, one-kernel policy, and optional-software payload verified.'
+ <<<"$iso_live"; then
+    echo 'ERROR: stock ISO unexpectedly boots CoffeeKernel.' >&2; exit 10
+  fi
+  echo 'kernel=debian-stock (inferred from stock ISO payload)'
 else
   echo 'ERROR: unrecognized kernel build status.' >&2; exit 10
 fi
