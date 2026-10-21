@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="520" viewBox="0 0 1024 520">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#160f0d"/><stop offset="1" stop-color="#3a241b"/></linearGradient></defs>
+<rect width="1024" height="520" fill="url(#bg)"/>
+<circle cx="180" cy="245" r="92" fill="#dba26d" opacity=".12"/>
+<path d="M118 282 A92 92 0 1 1 243 306" fill="none" stroke="#dba26d" stroke-width="18" stroke-linecap="round"/>
+<path d="M180 245 L235 178" stroke="#f7d3aa" stroke-width="14" stroke-linecap="round"/>
+<circle cx="180" cy="245" r="14" fill="#f7d3aa"/>
+<text x="340" y="200" fill="#fff4e9" font-family="sans-serif" font-size="50" font-weight="700">Built to feel fast</text>
+<text x="344" y="250" fill="#dba26d" font-family="sans-serif" font-size="23">RESPONSIVE BY DEFAULT</text>
+<text x="344" y="305" fill="#e6d8cf" font-family="sans-serif" font-size="21">CoffeeOS keeps the desktop lean and applies practical</text>
+<text x="344" y="338" fill="#e6d8cf" font-family="sans-serif" font-size="21">memory, storage, scheduling, and graphics optimizations.</text>
+</svg>

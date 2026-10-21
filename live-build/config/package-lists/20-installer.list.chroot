@@ -1,5 +1,5 @@
-# Install path is Debian-maintained Calamares settings; CoffeeOS-specific
-# partitioning and branding will come only after VM install validation.
+# Debian-maintained Calamares provides the install engine. CoffeeOS overlays
+# its own branding, welcome/finished pages and optional gaming-software chooser.
 calamares
 calamares-settings-debian
 cryptsetup

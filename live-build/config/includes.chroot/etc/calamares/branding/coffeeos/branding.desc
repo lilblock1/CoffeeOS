@@ -1,0 +1,39 @@
+---
+componentName: coffeeos
+welcomeStyleCalamares: false
+welcomeExpandingLogo: true
+windowExpanding: normal
+windowSize: 1024px,680px
+windowPlacement: center
+sidebar: widget
+navigation: widget
+
+strings:
+    productName:         "CoffeeOS"
+    shortProductName:    "CoffeeOS"
+    version:             "0.10.0-dev"
+    shortVersion:        "0.10"
+    versionedName:       "CoffeeOS 0.10.0-dev"
+    shortVersionedName:  "CoffeeOS 0.10"
+    bootloaderEntryName: "CoffeeOS"
+    productUrl:          "https://github.com/lilblock1/CoffeeOS"
+    supportUrl:          "https://github.com/lilblock1/CoffeeOS/issues"
+    knownIssuesUrl:      "https://github.com/lilblock1/CoffeeOS/issues"
+    releaseNotesUrl:     "https://github.com/lilblock1/CoffeeOS/releases"
+    donateUrl:           ""
+
+images:
+    productIcon:    "logo.svg"
+    productLogo:    "logo.svg"
+    productWelcome: "welcome.svg"
+
+slideshow:
+    - "/etc/calamares/branding/coffeeos/slide-performance.svg"
+    - "/etc/calamares/branding/coffeeos/slide-gaming.svg"
+    - "/etc/calamares/branding/coffeeos/slide-updates.svg"
+
+style:
+    sidebarBackground:    "#1a1210"
+    sidebarText:          "#f7eee5"
+    sidebarTextSelect:    "#1a1210"
+    sidebarTextHighlight: "#dba26d"

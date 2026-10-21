@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Install CoffeeOS
+GenericName=CoffeeOS System Installer
+Comment=Install CoffeeOS to this computer
+Exec=install-debian
+Icon=coffeeos
+Terminal=false
+Categories=Qt;System;
+Keywords=coffeeos;install;installer;calamares;system;
+StartupWMClass=calamares
+StartupNotify=true

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="520" viewBox="0 0 1024 520">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#130e0c"/><stop offset="1" stop-color="#332018"/></linearGradient></defs>
+<rect width="1024" height="520" fill="url(#bg)"/>
+<g transform="translate(82 168)" fill="none" stroke="#dba26d" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M45 128 L72 45 Q82 18 115 18 H238 Q271 18 281 45 L308 128 Q320 166 288 184 Q269 194 250 171 L224 140 H128 L102 171 Q83 194 64 184 Q33 166 45 128Z"/>
+  <path d="M111 78 H157 M134 55 V101"/>
+  <circle cx="236" cy="73" r="9" fill="#dba26d"/><circle cx="267" cy="100" r="9" fill="#dba26d"/>
+</g>
+<text x="430" y="190" fill="#fff4e9" font-family="sans-serif" font-size="50" font-weight="700">Gaming, your way</text>
+<text x="434" y="240" fill="#dba26d" font-family="sans-serif" font-size="23">OPTIONAL, NOT BLOATED</text>
+<text x="434" y="295" fill="#e6d8cf" font-family="sans-serif" font-size="21">Add Steam + Proton, Wine + DXVK, Lutris, or Gamescope</text>
+<text x="434" y="328" fill="#e6d8cf" font-family="sans-serif" font-size="21">during installation. Skip anything you do not want.</text>
+</svg>

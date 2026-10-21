@@ -1,0 +1,39 @@
+QPushButton {
+    min-height: 30px;
+    padding: 5px 14px;
+    border-radius: 7px;
+    border: 1px solid #8a6248;
+}
+QPushButton:hover {
+    border-color: #dba26d;
+}
+QPushButton:default {
+    background: #dba26d;
+    color: #1a1210;
+    font-weight: 600;
+}
+QPushButton:disabled {
+    color: #8b817b;
+    border-color: #5b514c;
+}
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    min-height: 28px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    border: 1px solid #7a5945;
+}
+QProgressBar {
+    min-height: 14px;
+    border: 1px solid #7a5945;
+    border-radius: 6px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background: #dba26d;
+    border-radius: 5px;
+}
+QToolTip {
+    color: #f7eee5;
+    background: #241b19;
+    border: 1px solid #8a6248;
+}

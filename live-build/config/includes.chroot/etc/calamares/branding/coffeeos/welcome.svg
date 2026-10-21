@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#17100e"/><stop offset="1" stop-color="#3a241b"/></linearGradient>
+  <radialGradient id="glow"><stop stop-color="#dba26d" stop-opacity=".28"/><stop offset="1" stop-color="#dba26d" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="900" height="360" rx="28" fill="url(#bg)"/>
+<circle cx="760" cy="80" r="220" fill="url(#glow)"/>
+<g transform="translate(90 65) scale(.72)">
+  <path d="M81 86 C69 69 98 61 85 40 M122 84 C110 67 141 61 129 40 M162 85 C149 67 180 62 166 40" fill="none" stroke="#efc694" stroke-width="8" stroke-linecap="round"/>
+  <path d="M50 104 H182 L170 175 Q165 200 128 200 H105 Q70 200 63 175Z" fill="#b9764e"/>
+  <path d="M182 118 H197 Q221 121 218 145 Q216 173 176 164" fill="none" stroke="#dba26d" stroke-width="15" stroke-linecap="round"/>
+  <path d="M48 210 H198" stroke="#f1cf9f" stroke-width="9" stroke-linecap="round"/>
+</g>
+<text x="285" y="137" fill="#fff5eb" font-family="sans-serif" font-size="58" font-weight="700">CoffeeOS</text>
+<text x="289" y="188" fill="#dba26d" font-family="sans-serif" font-size="22" letter-spacing="4">FAST • CLEAN • GAMING READY</text>
+<text x="289" y="245" fill="#e9ddd3" font-family="sans-serif" font-size="20">A lightweight Debian-based desktop tuned for responsive everyday use.</text>
+<text x="289" y="280" fill="#b9aaa0" font-family="sans-serif" font-size="17">Choose your disk, account, optional gaming tools, then let CoffeeOS do the rest.</text>
+</svg>

@@ -11,6 +11,7 @@ SETTINGS=/etc/calamares/settings.conf
 [ -f "$SETTINGS" ] || { echo "CoffeeOS: Calamares settings.conf missing" >&2; exit 1; }
 [ -f /etc/calamares/modules/packagechooser-coffeeapps.conf ] || { echo "CoffeeOS: optional-software chooser missing" >&2; exit 1; }
 [ -f /usr/lib/calamares/modules/coffeeapps/module.desc ] || { echo "CoffeeOS: optional-software job module missing" >&2; exit 1; }
+[ -f /etc/calamares/branding/coffeeos/branding.desc ] || { echo "CoffeeOS: custom Calamares branding missing" >&2; exit 1; }
 
 python3 - "$SETTINGS" <<'PY'
 from pathlib import Path
@@ -18,10 +19,31 @@ import sys
 
 p = Path(sys.argv[1])
 text = p.read_text(encoding='utf-8')
-if 'packagechooser@coffeeapps' in text and any(line.strip() == '- coffeeapps' for line in text.splitlines()):
-    raise SystemExit(0)
-
 lines = text.splitlines()
+
+# Use CoffeeOS branding while retaining Debian's maintained installer modules.
+branding_found = False
+for i, line in enumerate(lines):
+    if line.strip().startswith('branding:'):
+        indent = line[:-len(line.lstrip())]
+        lines[i] = indent + 'branding: coffeeos'
+        branding_found = True
+        break
+if not branding_found:
+    lines.append('branding: coffeeos')
+
+# Ask for one final confirmation before Calamares begins destructive work.
+for i, line in enumerate(lines):
+    if line.strip().startswith('prompt-install:'):
+        indent = line[:-len(line.lstrip())]
+        lines[i] = indent + 'prompt-install: true'
+        break
+
+text = '\n'.join(lines) + '\n'
+p.write_text(text, encoding='utf-8')
+
+if 'packagechooser@coffeeapps' in text and any(line.strip() == '- coffeeapps' for line in lines):
+    raise SystemExit(0)
 try:
     seq = next(i for i, line in enumerate(lines) if line.strip() == 'sequence:')
 except StopIteration:
@@ -70,4 +92,7 @@ if not any(line.strip() == '- coffeeapps' for line in lines):
 p.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 PY
 
-echo 'CoffeeOS: Calamares optional-software page enabled (single ISO, network install after sources-final).'
+# Keep only the CoffeeOS-branded desktop launcher in the live menu.
+rm -f /usr/share/applications/install-debian.desktop /usr/share/applications/calamares.desktop
+
+echo 'CoffeeOS: custom Calamares branding and optional-software page enabled.'
