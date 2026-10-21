@@ -92,6 +92,79 @@ if not any(line.strip() == '- coffeeapps' for line in lines):
 p.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 PY
 
+# Debian's Calamares users module may enable libpwquality dictionary checks.
+# Some live images do not ship a usable dictionary database, which makes every
+# password fail with "error loading dictionary". CoffeeOS uses Calamares'
+# built-in length validation instead, avoiding that broken external dependency.
+python3 <<'PY'
+from pathlib import Path
+
+candidates = [
+    Path("/etc/calamares/modules/users.conf"),
+    Path("/usr/share/calamares/modules/users.conf"),
+]
+
+for p in candidates:
+    if not p.is_file():
+        continue
+
+    lines = p.read_text(encoding="utf-8").splitlines()
+
+    # Remove only the libpwquality subsection and its indented values.
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.lstrip()
+        if stripped.startswith("libpwquality:"):
+            base_indent = len(line) - len(stripped)
+            i += 1
+            while i < len(lines):
+                nxt = lines[i]
+                nxt_stripped = nxt.lstrip()
+                if not nxt_stripped or nxt_stripped.startswith("#"):
+                    i += 1
+                    continue
+                indent = len(nxt) - len(nxt_stripped)
+                if indent <= base_indent:
+                    break
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+
+    # Keep a simple, deterministic CoffeeOS requirement: a non-trivial
+    # password, without dictionary/CrackLib availability affecting the UI.
+    found_requirements = False
+    found_min = False
+    for idx, line in enumerate(out):
+        if line.strip() == "passwordRequirements:":
+            found_requirements = True
+            parent_indent = len(line) - len(line.lstrip())
+            j = idx + 1
+            while j < len(out):
+                s = out[j].lstrip()
+                if s and not s.startswith("#"):
+                    indent = len(out[j]) - len(s)
+                    if indent <= parent_indent:
+                        break
+                    if s.startswith("minLength:"):
+                        out[j] = " " * indent + "minLength: 4"
+                        found_min = True
+                        break
+                j += 1
+            if not found_min:
+                out.insert(idx + 1, " " * (parent_indent + 2) + "minLength: 4")
+                found_min = True
+            break
+
+    if not found_requirements:
+        out.extend(["", "passwordRequirements:", "  minLength: 4"])
+
+    p.write_text("\n".join(out) + "\n", encoding="utf-8")
+    print(f"CoffeeOS: disabled broken libpwquality dictionary validation in {p}")
+PY
+
 # Keep only the CoffeeOS-branded desktop launcher in the live menu.
 rm -f /usr/share/applications/install-debian.desktop /usr/share/applications/calamares.desktop
 
