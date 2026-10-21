@@ -111,4 +111,4 @@ CoffeeOS userspace changes can publish a new signed `coffeeos-system` package to
 
 A tested CoffeeKernel release also carries the current `coffeeos-system` package, allowing the signed GitHub feed to publish kernel and userspace updates together.
 
-The publisher requires the repository secret `COFFEEOS_GPG_PRIVATE_KEY` and, when the key is protected, `COFFEEOS_GPG_PASSPHRASE`. Only the public key is deployed to clients.
+For the built-in GitHub source, no signing secret is required: Actions can generate a short-lived signing key for each publication and deploy only its public half. CoffeeOS refreshes that public key over the official GitHub Pages HTTPS endpoint before each update check. If `COFFEEOS_GPG_PRIVATE_KEY` is configured, the publisher uses that persistent key instead.
