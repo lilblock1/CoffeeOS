@@ -25,7 +25,7 @@ case "$MODE" in stock|core|deep) ;; *) echo "Invalid mode: $MODE" >&2; exit 2 ;;
 PKGDIR="$ROOT/live-build/config/packages.chroot"
 AUDITDIR="$ROOT/live-build/config/includes.chroot/usr/share/coffeeos"
 mkdir -p "$PKGDIR" "$AUDITDIR" "$CACHE_DIR" "$CCACHE_DIR"
-rm -f "$PKGDIR"/linux-image-*-coffee_*.deb
+rm -f "$PKGDIR"/linux-image-*-coffee_*.deb "$PKGDIR"/linux-headers-*-coffee_*.deb
 if [[ $MODE == stock ]]; then
   printf 'kernel=debian-stock\nmode=stock\n' > "$AUDITDIR/kernel-build-status.txt"
   echo 'CoffeeKernel build skipped in stock mode; Debian fallback kernel only.'
@@ -74,7 +74,7 @@ restore_cache() {
   cp -f -- "${images[0]}" "${headers[0]}" "$ROOT/dist/kernels/coffee/"
   cp -f -- "$cache/build-info.json" "$ROOT/dist/kernels/coffee/"
   (cd "$ROOT/dist/kernels/coffee" && sha256sum ./*.deb > SHA256SUMS)
-  cp -f -- "${images[0]}" "$PKGDIR/"
+  cp -f -- "${images[0]}" "${headers[0]}" "$PKGDIR/"
   {
     echo 'kernel=CoffeeKernel'
     echo "mode=$MODE"
@@ -106,7 +106,7 @@ shopt -u nullglob
   echo "Expected one CoffeeKernel image and one headers package; got ${#images[@]} image(s), ${#headers[@]} headers." >&2
   exit 5
 }
-cp -f -- "${images[0]}" "$PKGDIR/"
+cp -f -- "${images[0]}" "${headers[0]}" "$PKGDIR/"
 {
   echo 'kernel=CoffeeKernel'
   echo "mode=$MODE"
@@ -127,4 +127,4 @@ cp -f -- "${images[0]}" "${headers[0]}" "$COFFEE_KERNEL_DIST/coffee/build-info.j
 rm -rf -- "$cache"; mv -- "$tmp" "$cache"
 echo "[CoffeeOS kernel] cached for future builds: $cache"
 echo "Staged CoffeeKernel image for ISO: $(basename "${images[0]}")"
-echo "Headers retained as build artifact: ${headers[0]}"
+echo "Staged CoffeeKernel headers in ISO for DKMS: $(basename "${headers[0]}")"
