@@ -32,6 +32,18 @@ for path in \
   /etc/systemd/system/coffeeos-ci-install.service \
   /etc/grub.d/41_coffeeos_safe_graphics \
   /usr/share/applications/coffee-app-center.desktop \
+  /usr/local/sbin/coffee-kernel-manager \
+  /usr/local/bin/coffee-gpu-manager \
+  /usr/local/bin/coffee-flatpak-permissions \
+  /usr/local/bin/coffee-bug-report \
+  /usr/share/applications/coffee-bug-report.desktop \
+  /usr/share/plymouth/themes/coffeeos/coffeeos.plymouth \
+  /usr/share/plymouth/themes/coffeeos/coffeeos.script \
+  /etc/default/grub.d/50-coffeeos-plymouth.cfg \
+  /usr/bin/plymouth \
+  /usr/bin/jstest-gtk \
+  /usr/bin/fftest \
+  /usr/bin/switcherooctl \
   /usr/local/bin/coffee-control-center \
   /usr/local/bin/coffee-hardware-settings \
   /usr/local/bin/coffee-first-boot \
