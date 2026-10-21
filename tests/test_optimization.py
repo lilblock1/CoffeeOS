@@ -108,7 +108,8 @@ class TestOptimizationPipeline(unittest.TestCase):
         script=(ROOT/'scripts/build-coffeekernel-for-iso.sh').read_text()
         self.assertIn('build-kernel.sh',script)
         self.assertIn('linux-image-*-coffee',script)
-        self.assertNotIn('linux-headers-*-coffee" "$PKGDIR',script)
+        self.assertIn('linux-headers-*-coffee',script)
+        self.assertIn('cp -f -- "${images[0]}" "${headers[0]}" "$PKGDIR/"',script)
         foundation=(ROOT/'live-build/config/package-lists/00-foundation.list.chroot').read_text()
         self.assertIn('linux-image-amd64',foundation)
 
