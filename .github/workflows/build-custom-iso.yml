@@ -1,0 +1,153 @@
+name: Build CoffeeOS CoffeeKernel ISO
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-custom-iso.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build CoffeeKernel ISO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out CoffeeOS
+        uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          set -Eeuo pipefail
+          echo "Before cleanup:"
+          df -h /
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo docker system prune -af || true
+          echo "After cleanup:"
+          df -h /
+
+      - name: Add build swap
+        run: |
+          set -Eeuo pipefail
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: Prepare verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xorriso
+
+      - name: Build CoffeeKernel and CoffeeOS ISO in Debian 13
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist
+          docker run --rm --privileged \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            -e DEBIAN_FRONTEND=noninteractive \
+            -e COFFEE_KERNEL_JOBS=2 \
+            -e COFFEE_KERNEL_CACHE_DIR=/workspace/.cache/coffeekernel \
+            -e CCACHE_DIR=/workspace/.cache/ccache \
+            debian:trixie \
+            bash -lc '
+              set -Eeuo pipefail
+
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                live-build debootstrap squashfs-tools xorriso \
+                grub-pc-bin grub-efi-amd64-bin grub2-common \
+                mtools dosfstools isolinux syslinux-common \
+                ca-certificates gnupg rsync curl python3 \
+                build-essential dpkg-dev devscripts fakeroot apt-utils \
+                bc bison flex kmod cpio libelf-dev libssl-dev libncurses-dev \
+                dwarves debhelper ccache \
+                linux-source-6.12 linux-config-6.12 \
+                linux-image-amd64 linux-headers-amd64 initramfs-tools
+
+              echo "[CoffeeOS] Build host:"
+              cat /etc/os-release
+              uname -m
+              free -h
+              df -h /workspace
+
+              echo "[CoffeeOS] Debian kernel source/config versions:"
+              dpkg-query -W -f="${Package} ${Version}\n" linux-source-6.12 linux-config-6.12
+
+              rm -rf optimized-kernel-build dist/kernels/coffee build
+              rm -f live-build/config/packages.chroot/linux-image-*-coffee_*.deb 2>/dev/null || true
+              mkdir -p .cache/coffeekernel .cache/ccache dist
+
+              echo "[CoffeeOS] Compiling CoffeeKernel with 2 jobs..."
+              bash scripts/build-coffeekernel-for-iso.sh --mode deep --jobs 2 \
+                2>&1 | tee dist/github-coffeekernel-build.log
+
+              echo "[CoffeeOS] CoffeeKernel packages:"
+              ls -lh dist/kernels/coffee/
+              sha256sum -c dist/kernels/coffee/SHA256SUMS
+
+              echo "[CoffeeOS] Building ISO with CoffeeKernel staged..."
+              bash scripts/build-iso.sh \
+                2>&1 | tee dist/github-custom-iso-build.log
+            '
+
+      - name: Verify CoffeeKernel is staged
+        run: |
+          set -Eeuo pipefail
+          shopt -s nullglob
+          imgs=(dist/kernels/coffee/linux-image-*-coffee_*.deb)
+          hdrs=(dist/kernels/coffee/linux-headers-*-coffee_*.deb)
+          test "${#imgs[@]}" -eq 1
+          test "${#hdrs[@]}" -eq 1
+          dpkg-deb -f "${imgs[0]}" Package Version Architecture
+          sha256sum -c dist/kernels/coffee/SHA256SUMS
+
+      - name: Verify ISO
+        run: |
+          set -Eeuo pipefail
+          iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
+          test -n "$iso"
+          test -s "$iso"
+          sha256sum -c "$iso.sha256"
+          xorriso -indev "$iso" -report_el_torito as_mkisofs > dist/iso-boot-layout.txt
+          ls -lh "$iso" "$iso.sha256"
+
+      - name: Upload CoffeeKernel ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoffeeOS-CoffeeKernel-ISO
+          path: |
+            dist/*.iso
+            dist/*.iso.sha256
+            dist/kernels/coffee/*.deb
+            dist/kernels/coffee/SHA256SUMS
+            dist/kernels/coffee/build-info.json
+            dist/github-coffeekernel-build.log
+            dist/github-custom-iso-build.log
+            dist/iso-boot-layout.txt
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Publish downloadable CoffeeKernel ISO release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
+          tag="coffeeos-coffeekernel-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" \
+            "$iso" "$iso.sha256" \
+            dist/kernels/coffee/linux-image-*-coffee_*.deb \
+            dist/kernels/coffee/linux-headers-*-coffee_*.deb \
+            dist/kernels/coffee/SHA256SUMS \
+            --title "CoffeeOS CoffeeKernel ISO ${GITHUB_RUN_NUMBER}" \
+            --notes "CoffeeOS development ISO built on Debian 13 Trixie with the custom CoffeeKernel compiled from Debian's patched linux-source-6.12 using the CoffeeOS kernel configuration. Secure Boot support is not enabled for this development image."
