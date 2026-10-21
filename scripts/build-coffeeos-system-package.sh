@@ -64,8 +64,7 @@ for p in \
   usr/share/backgrounds/coffeeos usr/share/themes \
   usr/share/icons/hicolor/scalable/apps/coffeeos.svg \
   usr/share/wayland-sessions/coffee.desktop usr/share/wayland-sessions/coffee-gaming.desktop usr/share/coffeeos \
-  etc/coffeeos etc/gamemode.ini etc/greetd etc/gtk-3.0 \
-  etc/xdg/foot etc/xdg/fuzzel etc/xdg/labwc etc/xdg/mako etc/xdg/waybar \
+  etc/coffeeos \
   etc/systemd/journald.conf.d/60-coffeeos.conf \
   usr/lib/sysctl.d/60-coffeeos.conf \
   usr/lib/systemd/system/coffee-storage-tune.service \
@@ -78,8 +77,10 @@ for p in \
 find "$WORK" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "$WORK" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
-# Root-owned config files are normal package payload, not Debian conffiles: the
-# CoffeeOS release intentionally updates them as a coherent tested set.
+# Only CoffeeOS-owned paths are packaged here. Do not claim files already
+# owned by Debian packages (for example /etc/greetd/config.toml); live-build's
+# includes.chroot overlay still applies those defaults to the ISO without dpkg
+# ownership conflicts.
 dpkg-deb --root-owner-group --build "$WORK" "$OUT" >/dev/null
 printf 'Built in-place update package: %s\n' "$OUT"
 dpkg-deb -f "$OUT" Package Version Architecture
