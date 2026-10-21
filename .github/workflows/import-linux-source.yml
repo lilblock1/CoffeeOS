@@ -26,7 +26,7 @@ jobs:
           mkdir -p /tmp/coffeeos-import
           cat .bootstrap-source/chunk-* | base64 --decode > /tmp/coffeeos-source.tar.xz
           tar -xJf /tmp/coffeeos-source.tar.xz -C /tmp/coffeeos-import
-          rsync -a --delete             --exclude='.git/'             --exclude='.github/'             --exclude='LICENSE'             --exclude='scripts/ci/'             --exclude='docs/GITHUB-INFRASTRUCTURE.md'             --exclude='docs/SIGNING.md'             --exclude='docs/RELEASING.md'             /tmp/coffeeos-import/ ./
+          rsync -a --delete --exclude='.git/' --exclude='.github/' --exclude='LICENSE' --exclude='scripts/ci/' --exclude='docs/GITHUB-INFRASTRUCTURE.md' --exclude='docs/SIGNING.md' --exclude='docs/RELEASING.md' /tmp/coffeeos-import/ ./
           rm -rf .bootstrap-source
           rm -f .github/workflows/import-linux-source.yml
 
@@ -54,6 +54,5 @@ jobs:
           git config user.name "CoffeeOS CI"
           git config user.email "actions@users.noreply.github.com"
           git add -A
-          git diff --cached --check
           git commit -m "source: import CoffeeOS 0.10 Linux ISO build tree"
           git push origin HEAD:setup/coffeeos-infrastructure
