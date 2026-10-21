@@ -20,28 +20,39 @@ jobs:
       - name: Check out CoffeeOS
         uses: actions/checkout@v4
 
-      - name: Install ISO build dependencies
+      - name: Prepare host verification tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            live-build debootstrap squashfs-tools xorriso \
-            grub-pc-bin grub-efi-amd64-bin mtools dosfstools \
-            isolinux syslinux-common \
-            ca-certificates gnupg rsync python3 \
-            dpkg-dev fakeroot apt-utils
+          sudo apt-get install -y --no-install-recommends xorriso
 
-      - name: Force stock Debian kernel path
+      - name: Build inside Debian 13 Trixie
         run: |
-          rm -rf optimized-kernel-build dist/kernels/coffee
-          rm -f live-build/config/packages.chroot/linux-image-*-coffee_*.deb 2>/dev/null || true
+          set -Eeuo pipefail
           mkdir -p dist
-          echo "Building CoffeeOS with Debian linux-image-amd64; CoffeeKernel compile is intentionally skipped."
+          docker run --rm --privileged \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            -e DEBIAN_FRONTEND=noninteractive \
+            debian:trixie \
+            bash -lc '
+              set -Eeuo pipefail
 
-      - name: Build CoffeeOS ISO
-        env:
-          COFFEE_KERNEL_JOBS: "2"
-        run: |
-          sudo -E bash scripts/build-iso.sh 2>&1 | tee dist/github-stock-iso-build.log
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                live-build debootstrap squashfs-tools xorriso \
+                grub-pc-bin grub-efi-amd64-bin mtools dosfstools \
+                isolinux syslinux-common \
+                ca-certificates gnupg rsync python3 \
+                dpkg-dev fakeroot apt-utils
+
+              rm -rf optimized-kernel-build dist/kernels/coffee build
+              rm -f live-build/config/packages.chroot/linux-image-*-coffee_*.deb 2>/dev/null || true
+
+              echo "[CoffeeOS] Building with Debian stock linux-image-amd64."
+              echo "[CoffeeOS] CoffeeKernel compilation is intentionally skipped for this ISO."
+
+              bash scripts/build-iso.sh 2>&1 | tee dist/github-stock-iso-build.log
+            '
 
       - name: Verify ISO
         run: |
@@ -75,4 +86,4 @@ jobs:
           gh release create "$tag" \
             "$iso" "$iso.sha256" \
             --title "CoffeeOS Stock ISO ${GITHUB_RUN_NUMBER}" \
-            --notes "Automatically built CoffeeOS ISO using Debian's stock linux-image-amd64 kernel. CoffeeKernel compilation is skipped so this produces a usable ISO while the custom-kernel build is being fixed."
+            --notes "Automatically built CoffeeOS ISO using Debian 13 Trixie and Debian's stock linux-image-amd64 kernel. CoffeeKernel compilation is skipped so this produces a usable ISO while the custom-kernel build is being fixed."
