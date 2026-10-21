@@ -1,8 +1,26 @@
 #!/bin/sh
 set -eu
+theme=/usr/share/plymouth/themes/coffeeos
+
+# Keep the repository assets editable/scalable SVG, then rasterize them inside
+# the image. Plymouth's script plugin consumes the generated PNGs.
+if command -v rsvg-convert >/dev/null 2>&1; then
+  rsvg-convert -w 1920 -h 1080 -o "$theme/coffeeos-background.png" "$theme/coffeeos-background.svg"
+  rsvg-convert -o "$theme/steam.png" "$theme/steam.svg"
+  rsvg-convert -o "$theme/progress-track.png" "$theme/progress-track.svg"
+  rsvg-convert -o "$theme/progress-fill.png" "$theme/progress-fill.svg"
+fi
+
+for image in coffeeos-background steam progress-track progress-fill; do
+  test -s "$theme/$image.png" || {
+    echo "CoffeeOS Plymouth asset was not generated: $image.png" >&2
+    exit 1
+  }
+done
+
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
-  plymouth-set-default-theme coffeeos || true
+  plymouth-set-default-theme coffeeos
 fi
 if command -v update-initramfs >/dev/null 2>&1; then
-  update-initramfs -u -k all || true
+  update-initramfs -u -k all
 fi

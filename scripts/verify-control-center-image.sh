@@ -37,6 +37,15 @@ for path in \
   /usr/local/bin/coffee-flatpak-permissions \
   /usr/local/bin/coffee-bug-report \
   /usr/share/applications/coffee-bug-report.desktop \
+  /usr/share/plymouth/themes/coffeeos/coffeeos-background.svg \
+  /usr/share/plymouth/themes/coffeeos/steam.svg \
+  /usr/share/plymouth/themes/coffeeos/progress-track.svg \
+  /usr/share/plymouth/themes/coffeeos/progress-fill.svg \
+  /usr/share/plymouth/themes/coffeeos/coffeeos-background.png \
+  /usr/share/plymouth/themes/coffeeos/steam.png \
+  /usr/share/plymouth/themes/coffeeos/progress-track.png \
+  /usr/share/plymouth/themes/coffeeos/progress-fill.png \
+  /usr/bin/rsvg-convert \
   /usr/share/plymouth/themes/coffeeos/coffeeos.plymouth \
   /usr/share/plymouth/themes/coffeeos/coffeeos.script \
   /etc/default/grub.d/50-coffeeos-plymouth.cfg \

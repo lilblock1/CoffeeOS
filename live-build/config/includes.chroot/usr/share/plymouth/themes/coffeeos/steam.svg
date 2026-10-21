@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="270" viewBox="0 0 300 270">
+<defs>
+  <linearGradient id="s" x1="0" y1="1" x2="0" y2="0">
+    <stop offset="0" stop-color="#f5c98b" stop-opacity=".30"/>
+    <stop offset=".45" stop-color="#ffd89e" stop-opacity=".95"/>
+    <stop offset="1" stop-color="#d9874b" stop-opacity="0"/>
+  </linearGradient>
+  <filter id="g"><feGaussianBlur stdDeviation="2.8"/></filter>
+</defs>
+<path d="M132 264 C86 226 95 184 142 151 C190 118 184 77 145 48 C126 34 121 18 133 2" fill="none" stroke="url(#s)" stroke-width="13" stroke-linecap="round" filter="url(#g)"/>
+<path d="M176 266 C143 229 151 196 184 169 C218 141 223 108 199 80 C187 65 186 47 199 28" fill="none" stroke="url(#s)" stroke-width="8" stroke-linecap="round" opacity=".54" filter="url(#g)"/>
+</svg>

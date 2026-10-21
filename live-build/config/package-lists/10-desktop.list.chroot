@@ -73,3 +73,5 @@ plymouth
 plymouth-themes
 
 switcheroo-control
+
+librsvg2-bin

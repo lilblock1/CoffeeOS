@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=CoffeeOS
-Description=CoffeeOS coffee-themed boot splash
+Description=CoffeeOS espresso boot splash with animated steam and progress
 ModuleName=script
 
 [script]

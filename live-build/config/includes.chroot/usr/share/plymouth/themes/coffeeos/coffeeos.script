@@ -1,18 +1,129 @@
 # CoffeeOS Plymouth theme
-Window.SetBackgroundTopColor(0.078, 0.055, 0.047);
-Window.SetBackgroundBottomColor(0.153, 0.098, 0.082);
+# Approved CoffeeOS espresso splash: full-screen artwork, animated steam and
+# a real boot-progress bar.
 
-title.image = Image.Text("CoffeeOS", 0.95, 0.87, 0.78);
-title.sprite = Sprite(title.image);
-title.sprite.SetX(Window.GetWidth() / 2 - title.image.GetWidth() / 2);
-title.sprite.SetY(Window.GetHeight() / 2 - 42);
+Window.SetBackgroundTopColor(0.035, 0.020, 0.016);
+Window.SetBackgroundBottomColor(0.180, 0.082, 0.045);
 
-subtitle.image = Image.Text("Brewing your session...", 0.75, 0.64, 0.56);
-subtitle.sprite = Sprite(subtitle.image);
-subtitle.sprite.SetX(Window.GetWidth() / 2 - subtitle.image.GetWidth() / 2);
-subtitle.sprite.SetY(Window.GetHeight() / 2 + 12);
+screen.w = Window.GetWidth();
+screen.h = Window.GetHeight();
 
-progress.image = Image.Text("•  •  •", 0.85, 0.60, 0.36);
-progress.sprite = Sprite(progress.image);
-progress.sprite.SetX(Window.GetWidth() / 2 - progress.image.GetWidth() / 2);
-progress.sprite.SetY(Window.GetHeight() / 2 + 52);
+# Fill the screen while preserving the 16:9 artwork aspect ratio. Any excess
+# is centered and clipped by Plymouth instead of stretching the cup/logo.
+background.original = Image("coffeeos-background.png");
+background.w = screen.w;
+background.h = background.original.GetHeight() * screen.w / background.original.GetWidth();
+if (background.h < screen.h)
+{
+    background.h = screen.h;
+    background.w = background.original.GetWidth() * screen.h / background.original.GetHeight();
+}
+background.image = background.original.Scale(background.w, background.h);
+background.sprite = Sprite(background.image);
+background.sprite.SetPosition((screen.w - background.image.GetWidth()) / 2,
+                              (screen.h - background.image.GetHeight()) / 2,
+                              -10000);
+
+# UI scale uses the smaller axis so the bar/steam stay sensible on 4:3,
+# ultrawide and HiDPI displays.
+ui.scale = screen.h / 1080;
+if (screen.w / 1920 < ui.scale)
+    ui.scale = screen.w / 1920;
+
+# Steam is separate from the background so it can drift upward and fade.
+steam.original = Image("steam.png");
+steam.image = steam.original.Scale(steam.original.GetWidth() * ui.scale,
+                                   steam.original.GetHeight() * ui.scale);
+steam.sprite = Sprite(steam.image);
+steam.base_x = screen.w / 2 - steam.image.GetWidth() / 2;
+steam.base_y = screen.h * 0.105;
+steam.phase = 0;
+steam.sprite.SetPosition(steam.base_x, steam.base_y, 20);
+
+steam2.sprite = Sprite(steam.image);
+steam2.phase = 18;
+steam2.sprite.SetPosition(steam.base_x + 7 * ui.scale,
+                          steam.base_y - 18 * ui.scale,
+                          19);
+steam2.sprite.SetOpacity(0.30);
+
+# Real boot progress replaces the static bar from the concept art.
+track.original = Image("progress-track.png");
+track.image = track.original.Scale(track.original.GetWidth() * ui.scale,
+                                   track.original.GetHeight() * ui.scale);
+track.sprite = Sprite(track.image);
+track.x = screen.w / 2 - track.image.GetWidth() / 2;
+track.y = screen.h * 0.765;
+track.sprite.SetPosition(track.x, track.y, 30);
+
+bar.original = Image("progress-fill.png");
+bar.full = bar.original.Scale(bar.original.GetWidth() * ui.scale,
+                              bar.original.GetHeight() * ui.scale);
+bar.sprite = Sprite();
+bar.x = screen.w / 2 - bar.full.GetWidth() / 2;
+bar.y = track.y + (track.image.GetHeight() - bar.full.GetHeight()) / 2;
+bar.sprite.SetPosition(bar.x, bar.y, 31);
+bar.sprite.SetOpacity(0);
+
+fun progress_callback (duration, progress)
+{
+    if (progress < 0) progress = 0;
+    if (progress > 1) progress = 1;
+
+    width = Math.Int(bar.full.GetWidth() * progress);
+    if (width > 1)
+    {
+        bar.image = bar.full.Scale(width, bar.full.GetHeight());
+        bar.sprite.SetImage(bar.image);
+        bar.sprite.SetOpacity(1);
+    }
+    else
+        bar.sprite.SetOpacity(0);
+}
+Plymouth.SetBootProgressFunction(progress_callback);
+
+fun refresh_callback ()
+{
+    steam.phase = steam.phase + 0.32;
+    if (steam.phase > 36) steam.phase = 0;
+    steam.sprite.SetY(steam.base_y - steam.phase * ui.scale);
+    steam.sprite.SetOpacity(0.26 + (36 - steam.phase) / 58);
+
+    steam2.phase = steam2.phase + 0.24;
+    if (steam2.phase > 36) steam2.phase = 0;
+    steam2.sprite.SetY(steam.base_y - (steam2.phase + 6) * ui.scale);
+    steam2.sprite.SetOpacity(0.12 + (36 - steam2.phase) / 95);
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# Keep boot messages unobtrusive but readable when Plymouth needs to show one.
+message.sprite = Sprite();
+message.sprite.SetPosition(24, screen.h - 50, 10000);
+fun message_callback (text)
+{
+    message.image = Image.Text(text, 0.82, 0.70, 0.61);
+    message.sprite.SetImage(message.image);
+}
+Plymouth.SetMessageFunction(message_callback);
+
+# Basic disk/password prompt so encrypted installs remain usable with this
+# theme instead of falling back to an unbranded prompt.
+prompt.sprite = Sprite();
+prompt.sprite.SetPosition(screen.w / 2, screen.h * 0.84, 10001);
+fun password_callback (text, bullets)
+{
+    stars = "";
+    for (i = 0; i < bullets; i++)
+        stars = stars + "•";
+    prompt.image = Image.Text(text + "  " + stars, 0.96, 0.87, 0.76);
+    prompt.sprite.SetImage(prompt.image);
+    prompt.sprite.SetX(screen.w / 2 - prompt.image.GetWidth() / 2);
+    prompt.sprite.SetOpacity(1);
+}
+Plymouth.SetDisplayPasswordFunction(password_callback);
+
+fun normal_callback ()
+{
+    prompt.sprite.SetOpacity(0);
+}
+Plymouth.SetDisplayNormalFunction(normal_callback);

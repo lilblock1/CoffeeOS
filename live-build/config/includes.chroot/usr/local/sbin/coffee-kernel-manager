@@ -24,7 +24,7 @@ def held_packages():
     return set(p.stdout.splitlines()) if p.returncode==0 else set()
 
 def installed(pkg):
-    p=run(['dpkg-query','-W','-f=\${Status}',pkg],capture=True,timeout=10)
+    p=run(['dpkg-query','-W','-f=${Status}',pkg],capture=True,timeout=10)
     return p.returncode==0 and 'install ok installed' in p.stdout
 
 def grub_target(version):

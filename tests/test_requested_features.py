@@ -57,6 +57,25 @@ menuentry 'CoffeeOS, with Linux 6.12.57-amd64' {}
                 m.next_boot('stock')
         self.assertEqual(calls,[['grub-reboot','Advanced options>stock']])
 
+    def test_real_plymouth_splash_matches_approved_design(self):
+        theme=INC/'usr/share/plymouth/themes/coffeeos'
+        bg=(theme/'coffeeos-background.svg').read_text()
+        steam=(theme/'steam.svg').read_text()
+        script=(theme/'coffeeos.script').read_text()
+        for phrase in ('CoffeeOS','Brewing your session...','#090504','#4b2415'):
+            self.assertIn(phrase,bg)
+        self.assertIn('filter',steam)
+        self.assertIn('Plymouth.SetBootProgressFunction(progress_callback)',script)
+        self.assertIn('Plymouth.SetRefreshFunction(refresh_callback)',script)
+        self.assertIn('progress-fill.png',script)
+        self.assertIn('steam.png',script)
+        packages=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
+        self.assertIn('librsvg2-bin',packages)
+        hook=(ROOT/'live-build/config/hooks/live/050-coffeeos-plymouth.hook.chroot').read_text()
+        for asset in ('coffeeos-background','steam','progress-track','progress-fill'):
+            self.assertIn(asset+'.png',hook)
+        self.assertIn('rsvg-convert',hook)
+
     def test_plymouth_theme_is_complete_and_packaged(self):
         packages=set((ROOT/'live-build/config/package-lists/10-desktop.list.chroot').read_text().split())
         self.assertTrue({'plymouth','plymouth-themes'} <= packages)

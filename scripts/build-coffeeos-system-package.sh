@@ -34,7 +34,7 @@ Section: admin
 Priority: optional
 Architecture: $ARCH
 Maintainer: CoffeeOS Community
-Depends: bash, python3, apt, ca-certificates, gnupg, curl, systemd, plymouth, plymouth-themes, switcheroo-control, joystick, jstest-gtk
+Depends: bash, python3, apt, ca-certificates, gnupg, curl, systemd, plymouth, plymouth-themes, librsvg2-bin, switcheroo-control, joystick, jstest-gtk
 Description: CoffeeOS desktop, updater, profiles and system integration
  Updatable CoffeeOS-owned files. Debian base packages remain managed by APT.
 CTRL
@@ -52,6 +52,13 @@ if [ -d /run/systemd/system ]; then
   systemctl enable --now coffee-memory-tune.service >/dev/null 2>&1 || true
   systemctl enable --now coffee-performance-daemon.service >/dev/null 2>&1 || true
   systemctl enable --now coffee-boot-health-start.service >/dev/null 2>&1 || true
+  theme=/usr/share/plymouth/themes/coffeeos
+  if command -v rsvg-convert >/dev/null 2>&1 && [ -d "$theme" ]; then
+    rsvg-convert -w 1920 -h 1080 -o "$theme/coffeeos-background.png" "$theme/coffeeos-background.svg" || true
+    rsvg-convert -o "$theme/steam.png" "$theme/steam.svg" || true
+    rsvg-convert -o "$theme/progress-track.png" "$theme/progress-track.svg" || true
+    rsvg-convert -o "$theme/progress-fill.png" "$theme/progress-fill.svg" || true
+  fi
   if command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme coffeeos >/dev/null 2>&1 || true
     update-initramfs -u -k all >/dev/null 2>&1 || true
