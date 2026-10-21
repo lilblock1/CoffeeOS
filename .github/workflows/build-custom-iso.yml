@@ -182,8 +182,8 @@ jobs:
                   seed_headers=("$seed"/linux-headers-*-coffee_*.deb)
                   shopt -u nullglob
                   if [[ ${#seed_images[@]} -eq 1 && ${#seed_headers[@]} -eq 1 ]]; then
-                    source_version="$(dpkg-query -W -f='${Version}' linux-source-6.12 2>/dev/null || true)"
-                    config_version="$(dpkg-query -W -f='${Version}' linux-config-6.12 2>/dev/null || true)"
+                    source_version="$(dpkg-query -W -f="\${Version}" linux-source-6.12 2>/dev/null || true)"
+                    config_version="$(dpkg-query -W -f="\${Version}" linux-config-6.12 2>/dev/null || true)"
                     CACHE_ABI=1000
                     POLICY=/workspace/optimization/cache-policy.conf
                     # shellcheck disable=SC1090
@@ -206,9 +206,7 @@ jobs:
                       mkdir -p "$tmp"
                       cp -f -- "${seed_images[0]}" "${seed_headers[0]}" "$seed/SHA256SUMS" "$tmp/"
                       release_tag="$(cat "$seed/.release-tag")"
-                      cat > "$tmp/build-info.json" <<JSON
-{"source":"github-release","release":"$release_tag","debian_source_version":"$source_version","cache_key":"$key"}
-JSON
+                      printf '%s\n' "{\"source\":\"github-release\",\"release\":\"$release_tag\",\"debian_source_version\":\"$source_version\",\"cache_key\":\"$key\"}" > "$tmp/build-info.json"
                       if (cd "$tmp" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
                         rm -rf "$cache"
                         mv "$tmp" "$cache"
