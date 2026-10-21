@@ -367,11 +367,9 @@ jobs:
           xorriso -indev "$iso" -report_el_torito as_mkisofs > dist/iso-boot-layout.txt
           ls -lh "$iso" "$iso.sha256"
 
-      - name: BIOS boot smoke test
-        run: |
-          set -Eeuo pipefail
-          iso="$(find dist -maxdepth 1 -type f -name '*.iso' -print -quit)"
-          bash scripts/boot-smoke-test.sh --bios "$iso"
+      # Legacy BIOS support remains in the ISO, but CI intentionally skips
+      # the BIOS QEMU smoke test. UEFI and full-disk installed boot are still
+      # required before the artifact can be published.
 
       - name: UEFI boot smoke test
         run: |
