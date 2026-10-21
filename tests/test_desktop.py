@@ -99,6 +99,20 @@ class TestDesktopConfig(unittest.TestCase):
             self.assertIn(pkg,packages)
 
 
+    def test_lock_screen_is_theme_aware(self):
+        lock=(BIN/'coffee-lock').read_text()
+        for theme in ('espresso-noir','latte-cream','caramel-sunrise','mocha-night','hazelnut-mist','macchiato-glow'):
+            self.assertIn(theme,lock)
+        for option in ('--show-failed-attempts','--show-keyboard-layout',
+                       '--indicator-caps-lock','--indicator-idle-visible',
+                       '--ring-ver-color','--ring-wrong-color',
+                       '--inside-wrong-color','--layout-text-color'):
+            self.assertIn(option,lock)
+        self.assertIn('--scaling fill',lock)
+        tree=ET.parse(CHROOT/'etc/xdg/labwc/rc.xml')
+        keys={e.get('key'): e.find('action').get('command') for e in tree.findall('.//keybind') if e.find('action') is not None}
+        self.assertEqual(keys.get('W-l'),'coffee-lock')
+
     def test_waybar_is_compact_and_font_safe(self):
         bar=json.loads((CHROOT/'etc/xdg/waybar/config.jsonc').read_text())
         self.assertLessEqual(bar['height'],36)

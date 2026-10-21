@@ -1,13 +1,102 @@
 #!/usr/bin/env bash
+# CoffeeOS theme-aware Wayland lock screen.
 set -Eeuo pipefail
-command -v swaylock >/dev/null 2>&1 || { echo "swaylock is not installed" >&2; exit 3; }
-exec swaylock -f \
-  --color 140e0c \
-  --inside-color 271915ff \
-  --ring-color d89a5bff \
-  --line-color 00000000 \
-  --key-hl-color f2c28dff \
-  --text-color f8eee5ff \
-  --separator-color 00000000 \
-  --indicator-radius 90 \
-  --indicator-thickness 8
+
+command -v swaylock >/dev/null 2>&1 || {
+  echo "swaylock is not installed" >&2
+  exit 3
+}
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+theme_file="$config_home/coffeeos/theme"
+wallpaper_file="$config_home/coffeeos/wallpaper"
+theme=espresso-noir
+
+if [[ -f "$theme_file" ]]; then
+  IFS= read -r candidate < "$theme_file" || true
+  case "$candidate" in
+    espresso-noir|latte-cream|caramel-sunrise|mocha-night|hazelnut-mist|macchiato-glow)
+      theme=$candidate ;;
+    espresso) theme=espresso-noir ;;
+    latte) theme=latte-cream ;;
+  esac
+fi
+
+# Swaylock expects rrggbb[aa] without a leading '#'.
+case "$theme" in
+  latte-cream)
+    bg=efe1cc; surface=fff7e9; accent=8b5634; accent2=b97545
+    text=3a281f; muted=786153; wrong=b44336; clear=a47250 ;;
+  caramel-sunrise)
+    bg=26150d; surface=402116; accent=ffad4f; accent2=ffd08b
+    text=fff2df; muted=d7b397; wrong=ef6a58; clear=8a5230 ;;
+  mocha-night)
+    bg=0f0c0d; surface=21171a; accent=c78667; accent2=e2ad8f
+    text=f2e7e3; muted=b9a5a5; wrong=e36f74; clear=594047 ;;
+  hazelnut-mist)
+    bg=d9c2a4; surface=f5e7d4; accent=795035; accent2=a47250
+    text=35251e; muted=6f5b4d; wrong=b44336; clear=a78361 ;;
+  macchiato-glow)
+    bg=211611; surface=38241c; accent=edbd82; accent2=ffd9a8
+    text=fff3e6; muted=cdb8a6; wrong=ef7466; clear=7b553d ;;
+  *)
+    bg=140e0c; surface=271915; accent=d89a5b; accent2=f2c28d
+    text=f8eee5; muted=c0aa9a; wrong=e46f61; clear=62402f ;;
+esac
+
+args=(
+  swaylock
+  --daemonize
+  --ignore-empty-password
+  --show-failed-attempts
+  --show-keyboard-layout
+  --indicator-caps-lock
+  --indicator-idle-visible
+  --color "$bg"
+  --font "Cantarell"
+  --font-size 18
+  --indicator-radius 78
+  --indicator-thickness 7
+  --inside-color "${surface}ee"
+  --inside-clear-color "${surface}ee"
+  --inside-ver-color "${surface}f5"
+  --inside-wrong-color "${surface}f5"
+  --inside-caps-lock-color "${surface}f5"
+  --ring-color "${accent}ff"
+  --ring-clear-color "${clear}ff"
+  --ring-ver-color "${accent2}ff"
+  --ring-wrong-color "${wrong}ff"
+  --ring-caps-lock-color "${accent2}ff"
+  --key-hl-color "${accent2}ff"
+  --bs-hl-color "${wrong}ff"
+  --caps-lock-key-hl-color "${accent2}ff"
+  --caps-lock-bs-hl-color "${wrong}ff"
+  --text-color "${text}ff"
+  --text-clear-color "${muted}ff"
+  --text-ver-color "${accent2}ff"
+  --text-wrong-color "${wrong}ff"
+  --text-caps-lock-color "${accent2}ff"
+  --layout-bg-color "${surface}ee"
+  --layout-border-color "${accent}ff"
+  --layout-text-color "${text}ff"
+  --line-color 00000000
+  --line-clear-color 00000000
+  --line-ver-color 00000000
+  --line-wrong-color 00000000
+  --line-caps-lock-color 00000000
+  --separator-color 00000000
+)
+
+# Use a user-selected raster wallpaper when swaylock can consume it directly.
+# CoffeeOS' built-in wallpapers are SVG, so the safe fallback is the current
+# theme's background color rather than depending on an image converter.
+if [[ -f "$wallpaper_file" ]]; then
+  IFS= read -r wallpaper < "$wallpaper_file" || true
+  case "${wallpaper,,}" in
+    *.png|*.jpg|*.jpeg)
+      [[ -f "$wallpaper" ]] && args+=(--image "$wallpaper" --scaling fill)
+      ;;
+  esac
+fi
+
+exec "${args[@]}"
