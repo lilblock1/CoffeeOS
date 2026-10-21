@@ -5,20 +5,18 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/build-custom-iso.yml
-      - tests/**
-      - scripts/validate.sh
-      - scripts/boot-smoke-test.sh
-      - scripts/verify-*.sh
-      # Desktop, installer and package changes should rebuild the ISO, but they
-      # should reuse CoffeeKernel when the kernel inputs are unchanged.
+      # Explicit request file lets CoffeeOS build an ISO immediately when the
+      # maintainer asks for one without restoring "build on every push".
+      - .github/coffeeos-iso-request
+      # These are the meaningful CoffeeOS changes that count toward the
+      # 20-update ISO cadence. Tests/docs/workflow-only changes do not count.
       - live-build/**
       - scripts/build-iso.sh
       - scripts/build-coffeeos-system-package.sh
       - scripts/build-coffeekernel-for-iso.sh
       - scripts/build-kernel.sh
       - kernel/**
-      - optimization/cache-policy.conf
+      - optimization/**
 
 permissions:
   contents: write
@@ -30,8 +28,85 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  cadence:
+    name: Check ISO release cadence
+    runs-on: ubuntu-24.04
+    outputs:
+      should_build: ${{ steps.cadence.outputs.should_build }}
+      major_count: ${{ steps.cadence.outputs.major_count }}
+      baseline: ${{ steps.cadence.outputs.baseline }}
+      reason: ${{ steps.cadence.outputs.reason }}
+    steps:
+      - name: Check out CoffeeOS history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Count meaningful updates since last published ISO
+        id: cadence
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -Eeuo pipefail
+
+          # Manual workflow dispatch always means "build it now".
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "major_count=manual" >> "$GITHUB_OUTPUT"
+            echo "baseline=manual" >> "$GITHUB_OUTPUT"
+            echo "reason=manual workflow request" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A change to the explicit request file also means "build it now".
+          if git diff-tree --no-commit-id --name-only -r HEAD | grep -qx '.github/coffeeos-iso-request'; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "major_count=requested" >> "$GITHUB_OUTPUT"
+            echo "baseline=request-file" >> "$GITHUB_OUTPUT"
+            echo "reason=explicit CoffeeOS ISO request" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The newest successfully published stock or CoffeeKernel ISO is the
+          # cycle baseline. Because each release tag points to its source
+          # commit, publishing an ISO automatically resets the counter.
+          baseline_tag="$(
+            git for-each-ref               --sort=-creatordate               --format='%(refname:short)'               refs/tags/coffeeos-stock-* refs/tags/coffeeos-coffeekernel-*               | head -n1
+          )"
+
+          if [[ -n "$baseline_tag" ]]; then
+            baseline="$baseline_tag"
+            range="$baseline_tag..HEAD"
+          else
+            baseline="$(git rev-list --max-parents=0 HEAD | tail -n1)"
+            range="$baseline..HEAD"
+          fi
+
+          # One commit counts as one meaningful update if it changes the OS,
+          # installer, kernel or image build inputs. Pure docs/tests/CI changes
+          # intentionally do not advance the ISO counter.
+          major_count="$(
+            git rev-list "$range" --               live-build               kernel               optimization               scripts/build-iso.sh               scripts/build-coffeeos-system-package.sh               scripts/build-coffeekernel-for-iso.sh               scripts/build-kernel.sh               | wc -l               | tr -d ' '
+          )"
+
+          echo "major_count=$major_count" >> "$GITHUB_OUTPUT"
+          echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
+
+          if (( major_count >= 20 )); then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "reason=$major_count meaningful updates accumulated" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$major_count of 20 meaningful updates accumulated" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "CoffeeOS ISO cadence: $major_count / 20 meaningful updates since $baseline"
+
   build:
     name: Build CoffeeKernel ISO
+    needs: cadence
+    if: needs.cadence.outputs.should_build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
@@ -334,4 +409,4 @@ jobs:
             dist/kernels/coffee/SHA256SUMS \
             dist/kernels/coffee/build-info.json \
             --title "CoffeeOS CoffeeKernel ISO ${GITHUB_RUN_NUMBER}" \
-            --notes "CoffeeOS development ISO built on Debian 13 Trixie with a verified CoffeeKernel package pair. CoffeeKernel is reused from the persistent cache or a compatible prior release when kernel inputs are unchanged, and rebuilt automatically when required. Secure Boot support is not enabled for this development image."
+            --notes "CoffeeOS development ISO built after the configured 20-meaningful-update cadence or an explicit maintainer request. Built on Debian 13 Trixie with a verified CoffeeKernel package pair. CoffeeKernel is reused from the persistent cache or a compatible prior release when kernel inputs are unchanged, and rebuilt automatically when required. Secure Boot support is not enabled for this development image."
