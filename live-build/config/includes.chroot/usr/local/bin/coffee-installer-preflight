@@ -37,7 +37,15 @@ def launch(oem=False):
     marker=Path('/tmp/coffeeos-oem-mode')
     if oem:marker.write_text('1\n')
     else:marker.unlink(missing_ok=True)
-    exe='install-debian' if shutil.which('install-debian') else 'calamares';subprocess.Popen([exe],start_new_session=True)
+    if shutil.which('calamares-install-debian'):
+        cmd=['calamares-install-debian']
+    elif shutil.which('install-debian'):
+        cmd=['install-debian']
+    elif shutil.which('pkexec') and shutil.which('calamares'):
+        cmd=['pkexec','calamares']
+    else:
+        raise RuntimeError('CoffeeOS installer backend is not available')
+    subprocess.Popen(cmd,start_new_session=True)
 class Window(Gtk.Window):
     def __init__(self):
         super().__init__(title='CoffeeOS Installation Check');self.set_default_size(660,520);self.set_border_width(22)
