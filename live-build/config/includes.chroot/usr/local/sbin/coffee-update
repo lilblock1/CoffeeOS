@@ -6,7 +6,7 @@ optional signed CoffeeOS APT feed configured by the owner/user. The updater
 never enables an unsigned remote repository.
 """
 from __future__ import annotations
-import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -20,9 +20,9 @@ ROLLBACK=Path('/var/lib/coffeeos/rollback')
 CHANNELS={'stable','beta','dev'}
 CHANGELOG=Path('/usr/share/coffeeos/changelog.json')
 OFFICIAL_GITHUB_REPO='lilblock1/CoffeeOS'
-OFFICIAL_GITHUB_FEED='https://lilblock1.github.io/CoffeeOS'
-OFFICIAL_GITHUB_KEY=OFFICIAL_GITHUB_FEED+'/coffeeos-update-key.gpg'
+OFFICIAL_GITHUB_RELEASE_BASE='https://github.com/lilblock1/CoffeeOS/releases/download'
 DEFAULT_GITHUB_CHANNEL='dev'
+GITHUB_MANIFEST_CACHE=Path('/var/lib/coffeeos/github-update.json')
 
 
 def run(argv, *, check=False, capture=False, env=None):
@@ -76,6 +76,101 @@ def write_config(url, suite, *, github_auto=False, fingerprint=''):
     if fingerprint: lines.append('COFFEEOS_GITHUB_KEY_FINGERPRINT='+fingerprint)
     CONF.write_text('\n'.join(lines)+'\n')
 
+def github_release_tag(channel):
+    if channel not in CHANNELS: raise ValueError('invalid GitHub update channel')
+    return 'coffeeos-updates-'+channel
+
+def github_asset_url(channel, asset):
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+~-]*',asset) or '/' in asset or not asset.endswith(('.deb','.json')):
+        raise ValueError('invalid GitHub update asset name')
+    return OFFICIAL_GITHUB_RELEASE_BASE+'/'+github_release_tag(channel)+'/'+asset
+
+def curl_download(url, destination):
+    p=run(['curl','--fail','--location','--silent','--show-error','--proto','=https','--tlsv1.2','--max-time','60','--output',str(destination),url],capture=True)
+    if p.returncode: raise RuntimeError(p.stdout.strip() or 'download failed')
+
+def validate_github_manifest(data, channel):
+    if not isinstance(data,dict) or data.get('schema')!=1: raise ValueError('unsupported GitHub update manifest')
+    if data.get('repo')!=OFFICIAL_GITHUB_REPO: raise ValueError('GitHub update manifest repository mismatch')
+    if data.get('channel')!=channel: raise ValueError('GitHub update manifest channel mismatch')
+    packages=data.get('packages')
+    if not isinstance(packages,list) or len(packages)>100: raise ValueError('invalid GitHub package list')
+    clean=[]
+    for item in packages:
+        if not isinstance(item,dict): raise ValueError('invalid GitHub package entry')
+        pkg=str(item.get('package','')); version=str(item.get('version','')); arch=str(item.get('architecture','')); asset=str(item.get('asset','')); digest=str(item.get('sha256','')).lower()
+        if not re.fullmatch(r'[a-z0-9][a-z0-9+.-]*',pkg): raise ValueError('invalid package name in GitHub manifest')
+        if not version or len(version)>200: raise ValueError('invalid package version in GitHub manifest')
+        if arch not in ('all','amd64'): raise ValueError('unsupported package architecture in GitHub manifest')
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+~-]*\.deb',asset): raise ValueError('invalid package asset in GitHub manifest')
+        if not re.fullmatch(r'[0-9a-f]{64}',digest): raise ValueError('invalid package SHA256 in GitHub manifest')
+        clean.append({'package':pkg,'version':version,'architecture':arch,'asset':asset,'sha256':digest,'size':int(item.get('size',0) or 0),'auto_install':bool(item.get('auto_install',True))})
+    data=dict(data); data['packages']=clean; return data
+
+def fetch_github_manifest(*, strict=False):
+    if not github_auto_enabled(): return None,''
+    _,channel=feed_info()
+    channel=channel if channel in CHANNELS else DEFAULT_GITHUB_CHANNEL
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)/'coffeeos-update.json'
+            curl_download(github_asset_url(channel,'coffeeos-update.json'),p)
+            data=validate_github_manifest(json.loads(p.read_text()),channel)
+        GITHUB_MANIFEST_CACHE.parent.mkdir(parents=True,exist_ok=True)
+        tmp=GITHUB_MANIFEST_CACHE.with_suffix('.tmp'); tmp.write_text(json.dumps(data,indent=2)+'\n'); os.chmod(tmp,0o644); tmp.replace(GITHUB_MANIFEST_CACHE)
+        return data,''
+    except (OSError,RuntimeError,ValueError,json.JSONDecodeError) as exc:
+        message='CoffeeOS GitHub update check failed: '+str(exc)
+        if strict: raise SystemExit(message)
+        return None,message
+
+def cached_github_manifest():
+    try:
+        data=json.loads(GITHUB_MANIFEST_CACHE.read_text())
+        _,channel=feed_info()
+        return validate_github_manifest(data,channel if channel in CHANNELS else DEFAULT_GITHUB_CHANNEL)
+    except Exception: return None
+
+def installed_package_version(package):
+    p=run(['dpkg-query','-W','-f=${Version}',package],capture=True)
+    return p.stdout.strip() if p.returncode==0 else ''
+
+def version_is_newer(candidate, installed):
+    if not installed: return True
+    return run(['dpkg','--compare-versions',candidate,'gt',installed]).returncode==0
+
+def github_updates(manifest):
+    if not manifest: return []
+    updates=[]
+    for item in manifest.get('packages',[]):
+        current=installed_package_version(item['package'])
+        if not item.get('auto_install',True) and not current: continue
+        if not current and item['package']!='coffeeos-system' and not (item['package'].startswith('linux-image-') and '-coffee' in item['package']): continue
+        if version_is_newer(item['version'],current):
+            row=dict(item); row['installed_version']=current; updates.append(row)
+    return updates
+
+def github_update_lines(items):
+    out=[]
+    for item in items:
+        old=item.get('installed_version') or 'not installed'
+        out.append(f"{item['package']}/github {item['version']} [upgradable from: {old}]")
+    return out
+
+def install_github_updates(items, channel, env):
+    if not items: return
+    with tempfile.TemporaryDirectory(prefix='coffeeos-github-update.') as td:
+        root=Path(td); paths=[]
+        for item in items:
+            dst=root/item['asset']
+            curl_download(github_asset_url(channel,item['asset']),dst)
+            digest=hashlib.sha256(dst.read_bytes()).hexdigest()
+            if digest!=item['sha256']: raise SystemExit('SHA256 mismatch for '+item['asset'])
+            for field,key in (('Package','package'),('Version','version'),('Architecture','architecture')):
+                p=run(['dpkg-deb','-f',str(dst),field],capture=True)
+                if p.returncode or p.stdout.strip()!=item[key]: raise SystemExit('Package metadata mismatch for '+item['asset'])
+            paths.append(str(dst))
+        run(['apt-get','-y','install',*paths],check=True,env=env)
 def upgradable():
     p=run(['apt','list','--upgradable'],capture=True)
     lines=[]
@@ -85,9 +180,10 @@ def upgradable():
         lines.append(line)
     return lines
 
-def update_plan(lines=None):
+def update_plan(lines=None, github=None):
     lines=upgradable() if lines is None else lines
-    packages=[line.split('/',1)[0] for line in lines]
+    if github is None: github=github_updates(cached_github_manifest())
+    packages=[line.split('/',1)[0] for line in lines]+[x['package'] for x in github]
     critical=('grub','shim','systemd','libc6','initramfs-tools')
     high=('linux-image','linux-headers','nvidia','mesa','firmware','coffeeos-system')
     medium=('network-manager','pipewire','wayland','labwc','greetd','calamares')
@@ -140,13 +236,16 @@ def reboot_needed():
     except (OSError, ValueError): pass
     return False
 
-def write_state(lines, *, error=''):
+def write_state(lines, github=None, *, error=''):
+    github=github or []
     STATE.parent.mkdir(parents=True,exist_ok=True)
     data={
       'checked_at':datetime.now(timezone.utc).isoformat(),
       'version':current_version(),
-      'upgrade_count':len(lines),
-      'coffeeos_upgrade_count':len(coffee_lines(lines)),
+      'upgrade_count':len(lines)+len(github),
+      'coffeeos_upgrade_count':len(coffee_lines(lines))+len(github),
+      'github_upgrade_count':len(github),
+      'github_updates':[{'package':x['package'],'version':x['version'],'installed_version':x.get('installed_version','')} for x in github],
       'reboot_required':reboot_needed(),
       'error':error,
     }
@@ -154,77 +253,63 @@ def write_state(lines, *, error=''):
     tmp.write_text(json.dumps(data,indent=2)+'\n')
     os.chmod(tmp,0o644); tmp.replace(STATE)
     return data
-
 def read_state():
     try: return json.loads(STATE.read_text())
     except Exception: return {}
 
 def status(as_json=False):
-    url,suite=feed_info(); data=read_state()
+    url,suite=feed_info(); data=read_state(); github_on=github_auto_enabled() and not url
     result={
       'version':current_version(), 'feed_url':url, 'feed_suite':suite,
-      'feed_configured':bool(url and SOURCE.exists() and KEYRING.exists()),
-      'feed_source':'github' if url==OFFICIAL_GITHUB_FEED else ('custom' if url else 'none'),
+      'feed_configured':bool(github_on or (url and SOURCE.exists() and KEYRING.exists())),
+      'feed_source':'github' if github_on else ('custom' if url else 'none'),
       'github_repo':OFFICIAL_GITHUB_REPO,
       'github_auto':github_auto_enabled(),
       'last_check':data.get('checked_at','never'),
       'upgrade_count':data.get('upgrade_count',0),
       'coffeeos_upgrade_count':data.get('coffeeos_upgrade_count',0),
+      'github_upgrade_count':data.get('github_upgrade_count',0),
       'reboot_required':bool(data.get('reboot_required',reboot_needed())),
       'last_error':data.get('error',''),
     }
     if as_json: print(json.dumps(result,sort_keys=True)); return
     print(f"CoffeeOS version: {result['version']}")
-    source='GitHub ('+OFFICIAL_GITHUB_REPO+')' if result['feed_source']=='github' else (url or 'not configured (Debian updates only)')
-    print(f"CoffeeOS feed: {source}")
+    source='GitHub Releases ('+OFFICIAL_GITHUB_REPO+')' if result['feed_source']=='github' else (url or 'not configured (Debian updates only)')
+    print(f"CoffeeOS source: {source}")
     print(f"Channel: {suite}")
     print(f"Last check: {result['last_check']}")
     print(f"Cached upgrades: {result['upgrade_count']} ({result['coffeeos_upgrade_count']} CoffeeOS)")
     print(f"Reboot required: {'yes' if result['reboot_required'] else 'no'}")
     if result['last_error']: print(f"Last error: {result['last_error']}")
 
-def ensure_github_feed(*, strict=False):
-    """Bootstrap the official signed GitHub Pages APT feed when enabled."""
-    if not github_auto_enabled(): return ''
-    url,suite=feed_info()
-    if url and url != OFFICIAL_GITHUB_FEED: return ''
-    suite=suite if suite in CHANNELS else DEFAULT_GITHUB_CHANNEL
-    # The built-in GitHub source refreshes its public signing key on every
-    # check. GitHub HTTPS/repository ownership is the bootstrap trust anchor;
-    # the OpenPGP signature then protects APT metadata/package integrity.
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            key=Path(td)/'coffeeos-update-key.gpg'
-            p=run(['curl','--fail','--location','--silent','--show-error','--proto','=https','--tlsv1.2','--max-time','30','--output',str(key),OFFICIAL_GITHUB_KEY],capture=True)
-            if p.returncode: raise RuntimeError('GitHub signing key download failed: '+p.stdout.strip())
-            configure_feed(OFFICIAL_GITHUB_FEED,suite,str(key),github_auto=True,quiet=True)
-        return ''
-    except (OSError,RuntimeError,subprocess.CalledProcessError,SystemExit) as exc:
-        message='CoffeeOS GitHub feed bootstrap failed: '+str(exc)
-        if strict: raise SystemExit(message)
-        return message
-
 def use_github(channel=DEFAULT_GITHUB_CHANNEL):
     root_required(); installed_only()
     if channel not in CHANNELS: raise SystemExit('Channel must be stable, beta or dev.')
-    write_config(OFFICIAL_GITHUB_FEED,channel,github_auto=True)
-    warning=ensure_github_feed(strict=True)
+    SOURCE.unlink(missing_ok=True); KEYRING.unlink(missing_ok=True)
+    write_config('',channel,github_auto=True)
+    manifest,warning=fetch_github_manifest(strict=True)
     if warning: raise SystemExit(warning)
-    print(f'CoffeeOS GitHub updates enabled: {OFFICIAL_GITHUB_REPO} ({channel})')
+    print(f'CoffeeOS GitHub Releases updates enabled: {OFFICIAL_GITHUB_REPO} ({channel})')
+
+def list_updates():
+    lines=upgradable()
+    if github_auto_enabled() and not feed_info()[0]: lines += github_update_lines(github_updates(cached_github_manifest()))
+    print('\n'.join(lines))
 
 def do_check(background=False):
     root_required(); installed_only()
-    github_warning=ensure_github_feed(strict=False)
     p=run(['apt-get','update'])
     if p.returncode:
         write_state([],error=f'apt-get update failed with exit code {p.returncode}')
         raise SystemExit(p.returncode)
-    lines=upgradable(); data=write_state(lines,error=github_warning)
+    lines=upgradable(); gitems=[]; warning=''
+    if github_auto_enabled() and not feed_info()[0]:
+        manifest,warning=fetch_github_manifest(strict=False); gitems=github_updates(manifest)
+    data=write_state(lines,gitems,error=warning)
     if not background:
-        if github_warning: print('Warning: '+github_warning)
-        print(f"Available upgrades: {len(lines)} ({data['coffeeos_upgrade_count']} CoffeeOS)")
-        for line in lines: print(line)
-
+        if warning: print('Warning: '+warning)
+        print(f"Available upgrades: {len(lines)+len(gitems)} ({data['coffeeos_upgrade_count']} CoffeeOS)")
+        for line in lines+github_update_lines(gitems): print(line)
 def save_rollback():
     ROLLBACK.mkdir(parents=True,exist_ok=True)
     stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
@@ -268,20 +353,27 @@ def set_channel(channel):
     root_required(); installed_only()
     if channel not in CHANNELS: raise SystemExit('Channel must be stable, beta or dev.')
     url,_=feed_info()
+    if github_auto_enabled() and not url:
+        write_config('',channel,github_auto=True)
+        GITHUB_MANIFEST_CACHE.unlink(missing_ok=True)
+        print('CoffeeOS GitHub update channel set to '+channel+'.')
+        return
     if not url or not KEYRING.exists(): raise SystemExit('Configure a signed CoffeeOS update feed first.')
     SOURCE.write_text(f'''Types: deb\nURIs: {url}\nSuites: {channel}\nComponents: main\nSigned-By: {KEYRING}\n''')
     previous=parse_shell_kv(CONF)
-    write_config(url,channel,github_auto=(url==OFFICIAL_GITHUB_FEED and github_auto_enabled()),fingerprint=previous.get('COFFEEOS_GITHUB_KEY_FINGERPRINT',''))
-    print('CoffeeOS update channel set to '+channel+'.')
+    write_config(url,channel,github_auto=False,fingerprint=previous.get('COFFEEOS_GITHUB_KEY_FINGERPRINT',''))
+    print('CoffeeOS custom update channel set to '+channel+'.')
 
 def do_upgrade():
     root_required(); installed_only()
-    github_warning=ensure_github_feed(strict=False)
-    if github_warning: print('Warning: '+github_warning)
     env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
     run(['apt-get','update'],check=True,env=env)
-    lines_before=upgradable()
-    plan=update_plan(lines_before)
+    lines_before=upgradable(); gitems=[]; warning=''
+    url,channel=feed_info()
+    if github_auto_enabled() and not url:
+        manifest,warning=fetch_github_manifest(strict=False); gitems=github_updates(manifest)
+        if warning: print('Warning: '+warning)
+    plan=update_plan(lines_before,gitems)
     print('UPDATE_RISK='+plan['risk'].upper())
     if plan['risk'] in ('high','critical') and Path('/usr/local/sbin/coffee-recovery').exists():
         snap=subprocess.run(['/usr/local/sbin/coffee-recovery','snapshot-create','pre-update'],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False)
@@ -289,9 +381,12 @@ def do_upgrade():
         else: print('Btrfs snapshot unavailable: '+snap.stdout.strip())
     snapshot=save_rollback()
     if snapshot: print('Rollback snapshot: '+snapshot)
-    # dist-upgrade is required so new CoffeeKernel dependency sets can move forward.
     run(['apt-get','-y','dist-upgrade'],check=True,env=env)
-    lines=upgradable(); data=write_state(lines)
+    if gitems:
+        install_github_updates(gitems,channel if channel in CHANNELS else DEFAULT_GITHUB_CHANNEL,env)
+    lines=upgradable(); remaining=[]
+    if github_auto_enabled() and not feed_info()[0]: remaining=github_updates(cached_github_manifest())
+    data=write_state(lines,remaining,error=warning)
     print('CoffeeOS/Debian update completed.')
     if data['reboot_required']:
         print('REBOOT_REQUIRED=1')
@@ -299,7 +394,6 @@ def do_upgrade():
     else:
         print('REBOOT_REQUIRED=0')
         print('No reboot is currently required.')
-
 def do_cleanup():
     root_required(); installed_only()
     env=dict(os.environ,DEBIAN_FRONTEND='noninteractive')
@@ -349,8 +443,9 @@ def configure_feed(url,suite,keyfile, *, github_auto=False, quiet=False):
 def clear_feed():
     root_required(); installed_only()
     SOURCE.unlink(missing_ok=True); KEYRING.unlink(missing_ok=True)
+    GITHUB_MANIFEST_CACHE.unlink(missing_ok=True)
     write_config('',DEFAULT_GITHUB_CHANNEL,github_auto=False)
-    print('CoffeeOS-specific feed removed and automatic GitHub updates disabled. Debian Stable updates remain enabled.')
+    print('CoffeeOS-specific updates disabled. Debian Stable updates remain enabled.')
 
 def main():
     ap=argparse.ArgumentParser(prog='coffee-update')
@@ -366,7 +461,7 @@ def main():
     sub.add_parser('clear-feed')
     a=ap.parse_args()
     if a.cmd=='status': status(a.json)
-    elif a.cmd=='list': print('\n'.join(upgradable()))
+    elif a.cmd=='list': list_updates()
     elif a.cmd=='check': do_check(a.background)
     elif a.cmd=='plan': print_plan(a.json)
     elif a.cmd=='changelog': print_changelog()
