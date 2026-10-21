@@ -24,15 +24,16 @@ def load_script(name,path):
     return mod
 
 class TestRequestedCoffeeOSFeatures(unittest.TestCase):
-    def test_binary_hook_stages_coffeekernel_before_boot_menu_rewrite(self):
+    def test_binary_hook_verifies_live_build_coffeekernel_selection(self):
+        auto=(ROOT/'live-build/auto/config').read_text()
+        self.assertIn('COFFEE_LINUX_FLAVOURS="$coffee_flavour amd64"',auto)
+        init_hook=(ROOT/'live-build/config/hooks/live/045-coffeekernel-initramfs.hook.chroot').read_text()
+        self.assertIn('update-initramfs -c -k "$version"',init_hook)
         hook=(ROOT/'live-build/config/hooks/live/060-prefer-coffeekernel.hook.binary').read_text()
-        self.assertIn('chroot/boot/vmlinuz-*-coffee',hook)
-        self.assertIn('binary/live/filesystem.squashfs',hook)
-        self.assertIn('unsquashfs -cat "$squashfs" "boot/$kernel"',hook)
-        self.assertIn('cp -f -- "$source_kernel" "binary/live/$kernel"',hook)
-        self.assertIn('cp -f -- "$source_initrd" "binary/live/$initrd"',hook)
-        self.assertIn('no boot menu references /live/$kernel',hook)
-        self.assertIn('CoffeeKernel staged from $source_mode and selected as live boot default',hook)
+        self.assertIn('binary/live/vmlinuz-$version',hook)
+        self.assertIn('binary/live/initrd.img-$version',hook)
+        self.assertIn('generated boot menus do not select',hook)
+        self.assertIn('live-build selected CoffeeKernel as live boot default',hook)
 
     def test_kernel_manager_inventory_next_boot_and_safety(self):
         m=load_script('coffee_kernel_manager_feature_test',SBIN/'coffee-kernel-manager')

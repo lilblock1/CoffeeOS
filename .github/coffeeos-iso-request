@@ -1,7 +1,8 @@
 # CoffeeOS ISO request
 
-Retry after fixing CoffeeKernel live staging for Debian Trixie live-build.
-The binary hook now extracts CoffeeKernel from filesystem.squashfs when
-chroot/boot has already been removed, then verifies GRUB/Syslinux reference it.
+Retry after fixing CoffeeKernel selection at the live-build configuration layer.
+CoffeeKernel is now the first live-build kernel flavour, its initrd is explicitly
+created before binary generation, and the binary hook verifies both /live files
+and generated GRUB/Syslinux references.
 
 Requested: 2026-10-21

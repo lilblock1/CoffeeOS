@@ -105,13 +105,21 @@ class TestOptimizationPipeline(unittest.TestCase):
 
 
     def test_coffeekernel_is_preferred_in_live_boot_without_removing_fallback(self):
+        auto=(ROOT/'live-build/auto/config').read_text()
+        self.assertIn('config/packages.chroot/linux-image-*-coffee_*.deb',auto)
+        self.assertIn('COFFEE_LINUX_FLAVOURS="$coffee_flavour amd64"',auto)
+        self.assertIn('--linux-flavours "$COFFEE_LINUX_FLAVOURS"',auto)
+
+        init_hook=(ROOT/'live-build/config/hooks/live/045-coffeekernel-initramfs.hook.chroot').read_text()
+        self.assertIn('update-initramfs -c -k "$version"',init_hook)
+        self.assertIn('failed to create CoffeeKernel initrd',init_hook)
+
         hook=(ROOT/'live-build/config/hooks/live/060-prefer-coffeekernel.hook.binary').read_text()
-        self.assertIn('chroot/boot/vmlinuz-*-coffee',hook)
-        self.assertIn('binary/live/filesystem.squashfs',hook)
-        self.assertIn('unsquashfs -cat "$squashfs" "boot/$kernel"',hook)
-        self.assertIn('cp -f -- "$source_kernel" "binary/live/$kernel"',hook)
-        self.assertIn('CoffeeKernel staged from $source_mode and selected as live boot default',hook)
+        self.assertIn('binary/live/vmlinuz-$version',hook)
+        self.assertIn('binary/live/initrd.img-$version',hook)
+        self.assertIn('live-build selected CoffeeKernel as live boot default',hook)
         self.assertNotIn('rm -f binary/live/vmlinuz',hook)
+
         grub=(ROOT/'live-build/config/bootloaders/grub-pc/grub.cfg').read_text()
         self.assertNotIn('nomodeset',grub)
         self.assertIn('@LB_BOOTAPPEND_LIVE_FAILSAFE@',grub)

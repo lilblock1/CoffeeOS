@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+# CoffeeKernel packages are intentionally lightweight and may not create an
+# initramfs during dpkg configuration. live-build requires a matching initrd
+# before binary_linux-image and bootloader generation run.
+
+set -- /boot/vmlinuz-*-coffee
+[ -e "$1" ] || {
+    echo 'CoffeeOS: no CoffeeKernel in /boot; stock initramfs path unchanged.'
+    exit 0
+}
+[ "$#" -eq 1 ] || {
+    echo "CoffeeOS: expected exactly one CoffeeKernel in /boot, got $#" >&2
+    exit 1
+}
+
+kernel=$1
+version=${kernel#/boot/vmlinuz-}
+initrd="/boot/initrd.img-$version"
+
+command -v update-initramfs >/dev/null 2>&1 || {
+    echo 'CoffeeOS: update-initramfs is required for CoffeeKernel.' >&2
+    exit 1
+}
+
+if [ -s "$initrd" ]; then
+    update-initramfs -u -k "$version"
+else
+    update-initramfs -c -k "$version"
+fi
+
+[ -s "$initrd" ] || {
+    echo "CoffeeOS: failed to create CoffeeKernel initrd: $initrd" >&2
+    exit 1
+}
+
+echo "CoffeeOS: CoffeeKernel initrd ready: $initrd"

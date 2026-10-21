@@ -1,115 +1,49 @@
 #!/bin/sh
 set -eu
-# CoffeeKernel is installed into the live filesystem. By binary-hook time,
-# live-build may already have removed chroot/boot, while filesystem.squashfs
-# still contains the verified custom kernel. Stage the CoffeeKernel pair into
-# binary/live from whichever source is still available, then rewrite both
-# bootloaders. Debian's stock kernel stays on the medium as recovery fallback.
+# Debian 13 live-build copies every kernel/initrd from chroot/boot into
+# binary/live, and chooses the first LB_LINUX_FLAVOURS item for its default
+# boot entries. CoffeeOS configures CoffeeKernel first. This hook verifies that
+# contract before checksums/ISO creation instead of rewriting generated menus.
 
-kernel=
-source_mode=
-source_kernel=
-source_initrd=
-
-# Fast path for live-build versions that retain chroot/boot through binary hooks.
-set -- chroot/boot/vmlinuz-*-coffee
-if [ -e "$1" ]; then
-    [ "$#" -eq 1 ] || {
-        echo "CoffeeOS: expected exactly one CoffeeKernel in chroot/boot, got $#" >&2
-        exit 1
-    }
-    source_mode=chroot
-    source_kernel=$1
-    kernel=$(basename "$source_kernel")
-    version=${kernel#vmlinuz-}
-    source_initrd="chroot/boot/initrd.img-$version"
-    [ -s "$source_initrd" ] || {
-        echo "CoffeeOS: missing CoffeeKernel initrd in chroot: $source_initrd" >&2
-        exit 1
-    }
-else
-    # Debian live-build tears the chroot down before binary_hooks on current
-    # Trixie. The kernel is still present inside the already-built SquashFS.
-    squashfs=binary/live/filesystem.squashfs
-    if [ ! -s "$squashfs" ]; then
-        echo 'CoffeeOS: no CoffeeKernel source and no filesystem.squashfs (stock mode); leaving Debian default.'
-        exit 0
-    fi
-    command -v unsquashfs >/dev/null 2>&1 || {
-        echo 'CoffeeOS: unsquashfs is required to stage CoffeeKernel from filesystem.squashfs.' >&2
-        exit 1
-    }
-
-    kernel_list=$(unsquashfs -l "$squashfs" 2>/dev/null |
-        sed -n 's#^squashfs-root/boot/\(vmlinuz-.*-coffee\)$#\1#p')
-    set -- $kernel_list
-    [ "$#" -eq 1 ] || {
-        echo "CoffeeOS: expected exactly one CoffeeKernel in filesystem.squashfs, got $#" >&2
-        exit 1
-    }
-
-    source_mode=squashfs
-    kernel=$1
-    version=${kernel#vmlinuz-}
-    initrd="initrd.img-$version"
-
-    unsquashfs -l "$squashfs" 2>/dev/null |
-        grep -Fqx "squashfs-root/boot/$initrd" || {
-            echo "CoffeeOS: CoffeeKernel initrd is missing from filesystem.squashfs: $initrd" >&2
-            exit 1
-        }
+set -- config/packages.chroot/linux-image-*-coffee_*.deb
+if [ ! -e "$1" ]; then
+    echo 'CoffeeOS: no staged CoffeeKernel package (stock mode).'
+    exit 0
 fi
-
-initrd="initrd.img-${kernel#vmlinuz-}"
-mkdir -p binary/live
-
-if [ "$source_mode" = chroot ]; then
-    cp -f -- "$source_kernel" "binary/live/$kernel"
-    cp -f -- "$source_initrd" "binary/live/$initrd"
-else
-    unsquashfs -cat "$squashfs" "boot/$kernel" > "binary/live/$kernel"
-    unsquashfs -cat "$squashfs" "boot/$initrd" > "binary/live/$initrd"
-fi
-
-test -s "binary/live/$kernel" || {
-    echo "CoffeeOS: staged CoffeeKernel is empty: binary/live/$kernel" >&2
-    exit 1
-}
-test -s "binary/live/$initrd" || {
-    echo "CoffeeOS: staged CoffeeKernel initrd is empty: binary/live/$initrd" >&2
+[ "$#" -eq 1 ] || {
+    echo "CoffeeOS: expected one staged CoffeeKernel package, got $#" >&2
     exit 1
 }
 
-# Rewrite GRUB live entries to the exact custom pair.
-if [ -f binary/boot/grub/grub.cfg ]; then
-    sed -E -i \
-      -e "s#([[:space:]]*linux[[:space:]]+)(/live/)?vmlinuz[^[:space:]]*#\\1/live/$kernel#" \
-      -e "s#([[:space:]]*initrd[[:space:]]+)(/live/)?initrd[^[:space:]]*#\\1/live/$initrd#" \
-      binary/boot/grub/grub.cfg
-fi
+pkg=$(dpkg-deb -f "$1" Package)
+version=${pkg#linux-image-}
+case "$version" in
+    *-coffee) ;;
+    *) echo "CoffeeOS: invalid staged CoffeeKernel package: $pkg" >&2; exit 1 ;;
+esac
 
-# Rewrite Syslinux normal/safe live entries too.
-for cfg in binary/isolinux/live.cfg binary/isolinux/*.cfg; do
-    [ -f "$cfg" ] || continue
-    sed -E -i \
-      -e "s#([[:space:]]*linux[[:space:]]+)(/?live/)?vmlinuz[^[:space:]]*#\\1/live/$kernel#" \
-      -e "s#([[:space:]]*initrd[[:space:]]+)(/?live/)?initrd[^[:space:]]*#\\1/live/$initrd#" \
-      "$cfg"
-done
+kernel="binary/live/vmlinuz-$version"
+initrd="binary/live/initrd.img-$version"
+[ -s "$kernel" ] || {
+    echo "CoffeeOS: live-build did not copy CoffeeKernel into /live: $kernel" >&2
+    exit 1
+}
+[ -s "$initrd" ] || {
+    echo "CoffeeOS: live-build did not copy CoffeeKernel initrd into /live: $initrd" >&2
+    exit 1
+}
 
-# Fail while the unpacked binary tree is available if no bootloader references
-# the staged CoffeeKernel. This prevents publishing a custom-kernel ISO that
-# silently boots Debian's fallback kernel.
 found=0
 for cfg in binary/boot/grub/grub.cfg binary/isolinux/live.cfg; do
     [ -f "$cfg" ] || continue
-    if grep -Fq "/live/$kernel" "$cfg"; then
+    if grep -Fq "/live/vmlinuz-$version" "$cfg" || grep -Fq "live/vmlinuz-$version" "$cfg"; then
         found=1
     fi
 done
+
 [ "$found" -eq 1 ] || {
-    echo "CoffeeOS: CoffeeKernel was staged but no boot menu references /live/$kernel" >&2
+    echo "CoffeeOS: CoffeeKernel exists but generated boot menus do not select vmlinuz-$version" >&2
     exit 1
 }
 
-echo "CoffeeOS: CoffeeKernel staged from $source_mode and selected as live boot default: $kernel"
+echo "CoffeeOS: live-build selected CoffeeKernel as live boot default: $version"
