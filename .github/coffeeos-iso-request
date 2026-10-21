@@ -1,7 +1,8 @@
 # CoffeeOS ISO request
 
-Retry after disabling the full-disk install / installed-boot QEMU smoke test.
-CI still requires validation, CoffeeKernel staging, complete ISO payload and
-boot-structure verification, and UEFI live boot before publishing artifacts.
+Build CoffeeOS with the cached Deep userspace optimization pipeline enabled.
+The release must stage CoffeeKernel plus custom Core and Deep optimized packages,
+verify those optimizations inside the final ISO, pass UEFI live boot, then
+upload the artifact and publish the release.
 
 Requested: 2026-10-21
