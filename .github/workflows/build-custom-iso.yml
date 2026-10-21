@@ -92,7 +92,7 @@ jobs:
               df -h /workspace
 
               echo "[CoffeeOS] Debian kernel source/config versions:"
-              dpkg-query -W -f="${Package} ${Version}\n" linux-source-6.12 linux-config-6.12
+              dpkg-query -W linux-source-6.12 linux-config-6.12
 
               rm -rf optimized-kernel-build dist/kernels/coffee build
               rm -f live-build/config/packages.chroot/linux-image-*-coffee_*.deb 2>/dev/null || true
