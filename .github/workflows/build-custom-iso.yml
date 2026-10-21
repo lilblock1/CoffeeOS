@@ -296,10 +296,10 @@ jobs:
                     if [[ -n "$source_version" && "$source_version" == "$config_version" \
                           && "$image_version" == "$expected_version" \
                           && "$header_version" == "$expected_version" ]]; then
-                      fragment_sha="$(sha256sum /workspace/kernel/configs/coffee.conf | awk "{print \\$1}")"
+                      fragment_sha="$(sha256sum /workspace/kernel/configs/coffee.conf | cut -d " " -f1)"
                       gccver="$(gcc -dumpfullversion -dumpversion 2>/dev/null || gcc -dumpversion 2>/dev/null || echo unknown)"
                       material="source=$source_version\nconfig=$config_version\nfragment=$fragment_sha\ngcc=$gccver\narch=$(dpkg --print-architecture)\ncache-abi=$CACHE_ABI\n"
-                      key="$(printf "%b" "$material" | sha256sum | awk "{print \\$1}")"
+                      key="$(printf "%b" "$material" | sha256sum | cut -d " " -f1)"
                       cache="/workspace/.cache/coffeekernel/$key"
                       tmp="$cache.release.$$"
                       rm -rf "$tmp"
