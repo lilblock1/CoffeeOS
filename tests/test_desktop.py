@@ -15,6 +15,19 @@ CHROOT = ROOT / 'live-build/config/includes.chroot'
 BIN = CHROOT/'usr/local/bin'
 
 class TestDesktopConfig(unittest.TestCase):
+
+    def test_coffeeos_installer_replaces_debian_launcher(self):
+        launcher=(CHROOT/'usr/share/applications/coffeeos-installer.desktop').read_text()
+        self.assertIn('Name=Install CoffeeOS', launcher)
+        self.assertIn('Exec=coffeeos-installer', launcher)
+        self.assertNotIn('Exec=install-debian', launcher)
+        wrapper=(CHROOT/'usr/local/bin/coffeeos-installer').read_text()
+        self.assertIn('install-debian', wrapper)
+        hook=(ROOT/'live-build/config/hooks/live/040-coffeeos-installer-options.hook.chroot').read_text()
+        self.assertIn('Install Debian', hook)
+        self.assertIn('org.calamares.calamares.desktop', hook)
+        self.assertIn('coffeeos-installer.desktop', hook)
+
     def test_graphical_wayland_greeter(self):
         cfg=tomllib.loads((CHROOT/'etc/greetd/config.toml').read_text())
         self.assertEqual(cfg['default_session']['user'], '_greetd')
