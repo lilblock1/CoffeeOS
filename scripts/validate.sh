@@ -3,7 +3,8 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 status=0
-for f in scripts/*.sh live-build/auto/config live-build/config/hooks/live/*.hook.chroot; do
+for f in scripts/*.sh live-build/auto/config live-build/config/hooks/live/*.hook.chroot live-build/config/hooks/live/*.hook.binary; do
+  [[ -f "$f" ]] || continue
   bash -n "$f" || status=1
 done
 for f in live-build/config/includes.chroot/usr/local/bin/* live-build/config/includes.chroot/usr/local/sbin/*; do
