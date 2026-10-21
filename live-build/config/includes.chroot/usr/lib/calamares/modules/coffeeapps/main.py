@@ -55,6 +55,17 @@ def _selected_ids():
 
 
 def run():
+    # The installer launcher and its live-only helpers belong only to the live
+    # session. Calamares copies the SquashFS into the target, so remove them
+    # from the installed system before finishing.
+    check_target_env_call([
+        "rm", "-f",
+        "/usr/share/applications/coffeeos-installer.desktop",
+        "/usr/local/bin/coffeeos-installer",
+        "/usr/local/bin/coffee-installer-preflight",
+        "/usr/local/bin/coffee-installer-report",
+    ])
+
     selected = _selected_ids()
     if not selected:
         libcalamares.utils.debug("CoffeeOS: no optional software selected")

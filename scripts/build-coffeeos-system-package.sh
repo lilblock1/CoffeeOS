@@ -35,6 +35,11 @@ CTRL
 cat > "$WORK/DEBIAN/postinst" <<'POST'
 #!/bin/sh
 set -e
+# Migration cleanup: installer launchers are live-media-only. Older CoffeeOS
+# installs may still contain the launcher because Calamares copied it from the
+# live SquashFS.
+rm -f   /usr/share/applications/coffeeos-installer.desktop   /usr/local/bin/coffeeos-installer   /usr/local/bin/coffee-installer-preflight   /usr/local/bin/coffee-installer-report || true
+
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload || true
   systemctl enable --now coffee-update-check.timer >/dev/null 2>&1 || true

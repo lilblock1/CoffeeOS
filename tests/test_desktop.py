@@ -20,6 +20,14 @@ class TestDesktopConfig(unittest.TestCase):
         packages=set((ROOT/'live-build/config/package-lists/20-installer.list.chroot').read_text().split())
         self.assertIn('squashfs-tools', packages)
 
+    def test_installed_target_removes_live_installer_launcher(self):
+        job=(CHROOT/'usr/lib/calamares/modules/coffeeapps/main.py').read_text()
+        self.assertIn('/usr/share/applications/coffeeos-installer.desktop',job)
+        self.assertIn('/usr/local/bin/coffeeos-installer',job)
+        package=(ROOT/'scripts/build-coffeeos-system-package.sh').read_text()
+        self.assertIn('/usr/share/applications/coffeeos-installer.desktop',package)
+        self.assertIn('Migration cleanup',package)
+
     def test_coffeeos_installer_replaces_debian_launcher(self):
         launcher=(CHROOT/'usr/share/applications/coffeeos-installer.desktop').read_text()
         self.assertIn('Name=Install CoffeeOS', launcher)

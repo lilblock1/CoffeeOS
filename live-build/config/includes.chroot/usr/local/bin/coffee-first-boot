@@ -5,7 +5,7 @@ import argparse, os, subprocess
 from pathlib import Path
 import gi
 gi.require_version('Gtk','3.0')
-from gi.repository import Gdk,Gtk
+from gi.repository import Gdk,GLib,Gtk
 
 STYLE=b'''
 window.coffee-welcome { background:#140e0c; color:#f8eee5; }
@@ -44,8 +44,27 @@ class Welcome(Gtk.Window):
     def page_button(self,title,detail,page):
         b=Gtk.Button(); inner=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=4); heading=Gtk.Label(label=title); heading.set_xalign(0); hint=Gtk.Label(label=detail); hint.set_xalign(0); hint.set_line_wrap(True); hint.get_style_context().add_class('muted'); inner.pack_start(heading,False,False,0); inner.pack_start(hint,False,False,0); b.add(inner); b.connect('clicked',lambda *_:self.open_page(page)); return b
     def open_page(self,page):
-        try: subprocess.Popen(['coffee-control-center','--page',page],start_new_session=True)
-        except OSError: pass
+        # Make it obvious that the shortcut worked instead of leaving the
+        # Welcome window sitting in front of Control Center.
+        self.hide()
+        try:
+            proc=subprocess.Popen(
+                ['/usr/local/bin/coffee-control-center','--page',page],
+                start_new_session=True)
+            GLib.child_watch_add(proc.pid,self.control_center_closed)
+        except OSError as exc:
+            self.show_all()
+            dialog=Gtk.MessageDialog(
+                transient_for=self,modal=True,message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.CLOSE,text='Could not open Coffee Control Center')
+            dialog.format_secondary_text(str(exc)); dialog.run(); dialog.destroy()
+
+    def control_center_closed(self,_pid,_status):
+        # Return to onboarding so the user can open another setup page or press
+        # Finish Setup. The completion marker is still written only by Finish.
+        self.show_all()
+        self.present()
+        return False
     def finish(self,*_):
         path=marker(); path.parent.mkdir(parents=True,exist_ok=True); path.write_text('CoffeeOS first-run welcome completed.\n',encoding='utf-8'); os.chmod(path,0o600); self.destroy()
 def main():

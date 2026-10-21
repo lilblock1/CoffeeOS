@@ -47,6 +47,16 @@ class TestControlCenterIntegration(unittest.TestCase):
         self.assertIn("--page',page",welcome.replace(' ',''))
         self.assertIn('welcome-complete',welcome)
 
+    def test_welcome_shortcuts_open_visible_control_center_pages(self):
+        welcome=(BIN/'coffee-first-boot').read_text()
+        self.assertIn("'/usr/local/bin/coffee-control-center','--page',page",welcome.replace(' ',''))
+        self.assertIn('self.hide()',welcome)
+        self.assertIn('GLib.child_watch_add',welcome)
+        self.assertIn('self.present()',welcome)
+        control=(BIN/'coffee-control-center').read_text()
+        for page in ('overview','display','audio','bluetooth','updates','software'):
+            self.assertIn("'"+page+"'",control)
+
     def test_update_backend_is_allow_listed_and_live_safe(self):
         text=(SBIN/'coffee-update').read_text()
         for cmd in ("'status'","'list'","'check'","'upgrade'","'cleanup'","'set-feed'","'clear-feed'","'set-channel'","'rollback-list'","'rollback-latest'"):
